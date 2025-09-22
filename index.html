@@ -37,6 +37,26 @@
                 height: 450px;
             }
         }
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            border: none;
+            background-color: transparent;
+            font-weight: 600;
+            color: #475569;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        .tab-btn.active {
+            color: #0d9488;
+            border-bottom-color: #0d9488;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
     </style>
 </head>
 <body class="text-gray-800">
@@ -81,6 +101,51 @@
                         <div class="chart-container flex-grow">
                             <canvas id="kpiBarChart"></canvas>
                         </div>
+                        
+                        <!-- Tabs for Activity Details -->
+                        <div class="mt-8 border rounded-lg bg-slate-50">
+                            <div class="flex border-b border-slate-200">
+                                <button class="tab-btn active" data-tab="cyber">ป้องกันภัยทางไซเบอร์</button>
+                                <button class="tab-btn" data-tab="review">ทบทวนสิทธิ์ใช้งาน</button>
+                                <button class="tab-btn" data-tab="continuity">ความต่อเนื่องของระบบ</button>
+                                <button class="tab-btn" data-tab="skills">พัฒนาทักษะดิจิทัล</button>
+                            </div>
+                            <div class="p-4">
+                                <div id="cyber-content" class="tab-content active">
+                                    <h4 class="font-bold text-gray-700 mb-2">รายละเอียดกิจกรรม:</h4>
+                                    <ul class="list-decimal list-inside text-gray-600 text-sm space-y-1">
+                                        <li>ปฏิบัติตาม นโยบายและแนวปฏิบัติในการรักษาความมั่นคงปลอดภัยกรมวิทยาศาสตร์การแพทย์</li>
+                                        <li>ติดตั้งระบบ Firewall, Anti-virus และระบบตรวจจับภัยคุกคาม ในเครื่องคอมพิวเตอร์ทุกเครื่อง</li>
+                                    </ul>
+                                </div>
+                                <div id="review-content" class="tab-content">
+                                    <h4 class="font-bold text-gray-700 mb-2">รายละเอียดกิจกรรม:</h4>
+                                    <ul class="list-decimal list-inside text-gray-600 text-sm space-y-1">
+                                        <li>ดูแลรักษาข้อมูลในระบบสารสนเทศกองแผนงานและวิชาการ</li>
+                                        <li>ทบทวนสิทธิ์การเข้าถึงระบบ M-SIIS และทบทวนสิทธิ์ปีละไม่น้อยกว่า 1 ครั้ง</li>
+                                        <li>ทบทวนสิทธิ์การเข้าถึงระบบ เว็บไซต์กองแผนงานและวิชาการและทบทวนสิทธิ์ปีละไม่น้อยกว่า 1 ครั้ง</li>
+                                        <li>ตรวจสอบเหตุการณ์ข้อมูลรั่วไหลเป็นประจำ (ทุกไตรมาส) และรายงานผ่านที่ประชุมกองแผนงานและวิชาการ</li>
+                                    </ul>
+                                </div>
+                                <div id="continuity-content" class="tab-content">
+                                    <h4 class="font-bold text-gray-700 mb-2">รายละเอียดกิจกรรม:</h4>
+                                    <ul class="list-decimal list-inside text-gray-600 text-sm space-y-1">
+                                        <li>จัดทำแผน BCP ด้านความมั่นคงปลอดภัยของระบบสารสนเทศ ของกองแผนงานและวิชาการ</li>
+                                        <li>วัดความต่อเนื่องของระบบ M-SIIS</li>
+                                    </ul>
+                                </div>
+                                <div id="skills-content" class="tab-content">
+                                    <h4 class="font-bold text-gray-700 mb-2">รายละเอียดกิจกรรม:</h4>
+                                    <ul class="list-decimal list-inside text-gray-600 text-sm space-y-1">
+                                        <li>รวบรวมหลักสูตรเพิ่มทักษะด้านดิจิทัลที่จำเป็นต่อกองแผนงานและวิชาการ</li>
+                                        <li>บรรจุในแผนพัฒนาบุคลากร (KM) ของกองแผนงานและวิชาการ</li>
+                                        <li>ประชาสัมพันธ์และติดตามการอบรมผ่านที่ประชุมกองแผนงานและวิชาการ ประจำเดือน</li>
+                                        <li>สรุปผลการอบรม</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </section>
@@ -219,6 +284,27 @@
                 }
             }
         });
+        
+        // Tab functionality
+        const tabs = document.querySelectorAll('.tab-btn');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const target = tab.getAttribute('data-tab');
+
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === `${target}-content`) {
+                        content.classList.add('active');
+                    }
+                });
+            });
+        });
+
     </script>
 </body>
 </html>
