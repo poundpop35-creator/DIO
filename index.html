@@ -6,34 +6,35 @@
     <title>ผลการดำเนินงาน DIO ประจำเดือนกันยายน 2568</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
     <!-- Chosen Palette: Lush Greens & Soft Greys -->
-    <!-- Application Structure Plan: The SPA is designed as a top-down narrative dashboard. It starts with high-level KPI cards for immediate impact. The user then scrolls to a "deep dive" section with interactive charts comparing performance against targets, followed by a specific focus on personnel development. The final section presents qualitative analysis (strengths and recommendations) in a clear, two-column layout. This structure was chosen to guide the user from a broad summary to detailed insights, making the report's content more engaging and easier to digest than a linear slide presentation. -->
+    <!-- Application Structure Plan: The SPA is designed as a top-down narrative dashboard. It starts with impactful KPI cards for a quick overview. The user then scrolls to a "deep dive" section with interactive charts comparing performance against targets and personnel development. The final section presents qualitative analysis (strengths and recommendations) in a clear, scannable layout. This structure guides the user from summary data to details in a logical flow. -->
     <!-- Visualization & Content Choices: 
-        - Overall KPIs: Goal: Inform -> Method: Large stat cards (HTML/Tailwind) -> Interaction: None -> Justification: Provides a quick, high-impact summary upfront.
-        - Performance vs. Target: Goal: Compare -> Method: Horizontal Bar Chart (Chart.js/Canvas) -> Interaction: Tooltips -> Justification: Clearly visualizes the margin by which performance exceeded targets for multiple KPIs.
-        - Personnel Training: Goal: Inform (Proportion) -> Method: Donut Chart (Chart.js/Canvas) -> Interaction: Tooltips -> Justification: Best choice for showing a simple part-to-whole relationship (trained vs. untrained staff).
-        - Strengths & Recommendations: Goal: Organize -> Method: Styled lists with icons (HTML/Tailwind/Unicode) -> Interaction: None -> Justification: Effectively organizes qualitative points for easy scanning and readability.
+        - Overall KPIs: Goal: Inform -> Method: Large stat cards (HTML/Tailwind/Unicode) -> Interaction: None -> Justification: Provides a quick, high-impact summary of the four main metrics.
+        - Performance vs. Target: Goal: Compare -> Method: Horizontal Bar Chart (Chart.js/Canvas) -> Interaction: Tooltips on hover -> Justification: The best method to visually compare actual results against targets across multiple categories. NO SVG.
+        - Personnel Training: Goal: Inform (Proportion) -> Method: Donut Chart (Chart.js/Canvas) -> Interaction: Tooltips on hover -> Justification: Ideal for showing a simple part-to-whole relationship. NO SVG.
+        - Strengths & Recommendations: Goal: Organize -> Method: Two-column styled lists with icons (HTML/Tailwind/Unicode) -> Interaction: None -> Justification: Organizes qualitative points for easy scanning and readability. NO SVG/Mermaid.
     -->
     <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
     <style>
         body {
             font-family: 'Sarabun', sans-serif;
-            background-color: #F8F9FA;
+            background-color: #F8F9FA; /* Soft Grey */
         }
         .chart-container {
             position: relative;
             width: 100%;
-            max-width: 600px;
+            max-width: 800px;
             margin-left: auto;
             margin-right: auto;
             height: 400px;
         }
-        @media (max-width: 768px) {
+        @media (min-width: 768px) {
             .chart-container {
-                height: 350px;
+                height: 450px;
             }
         }
     </style>
@@ -52,44 +53,33 @@
             <section id="overview" class="mb-12">
                 <h2 class="text-2xl font-bold text-center mb-8 text-teal-800">สรุปผลการดำเนินงานภาพรวม</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105">
-                        <h3 class="text-lg font-semibold text-gray-700 mb-2">🛡️ ป้องกันการโจมตีทางไซเบอร์</h3>
-                        <p class="text-4xl font-bold text-teal-600">100%</p>
-                        <p class="text-sm text-gray-500 mt-1">เป้าหมาย: ≥ 90%</p>
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105 text-center min-h-[10rem]">
+                        <h3 class="text-xl font-semibold text-gray-700 mb-2">🛡️ ป้องกันภัยทางไซเบอร์</h3>
+                        <p class="text-base text-gray-500"><span class="font-bold text-teal-700">เป้าหมาย:</span> ≥ 90%</p>
                     </div>
-                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105">
-                        <h3 class="text-lg font-semibold text-gray-700 mb-2">⚙️ ความต่อเนื่องของระบบ</h3>
-                        <p class="text-4xl font-bold text-teal-600">100%</p>
-                        <p class="text-sm text-gray-500 mt-1">เป้าหมาย: ≥ 95%</p>
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105 text-center min-h-[10rem]">
+                        <h3 class="text-xl font-semibold text-gray-700 mb-2">👤 ทบทวนสิทธิ์ใช้งาน</h3>
+                        <p class="text-base text-gray-500"><span class="font-bold text-teal-700">เป้าหมาย:</span> ≥ 1 ครั้ง/ปี</p>
                     </div>
-                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105">
-                        <h3 class="text-lg font-semibold text-gray-700 mb-2">🎓 พัฒนาทักษะดิจิทัล</h3>
-                        <p class="text-4xl font-bold text-teal-600">94%</p>
-                        <p class="text-sm text-gray-500 mt-1">เป้าหมาย: ≥ 45%</p>
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105 text-center min-h-[10rem]">
+                        <h3 class="text-xl font-semibold text-gray-700 mb-2">⚙️ ความต่อเนื่องของระบบ</h3>
+                        <p class="text-base text-gray-500"><span class="font-bold text-teal-700">เป้าหมาย:</span> ≥ 95%</p>
                     </div>
-                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105">
-                        <h3 class="text-lg font-semibold text-gray-700 mb-2">👤 ทบทวนสิทธิ์การใช้งาน</h3>
-                        <p class="text-4xl font-bold text-teal-600">ครบถ้วน</p>
-                        <p class="text-sm text-gray-500 mt-1">เป้าหมาย: ≥ 1 ครั้ง/ปี</p>
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500 transition-transform transform hover:scale-105 text-center min-h-[10rem]">
+                        <h3 class="text-xl font-semibold text-gray-700 mb-2">🎓 พัฒนาทักษะดิจิทัล</h3>
+                        <p class="text-base text-gray-500"><span class="font-bold text-teal-700">เป้าหมาย:</span> ≥ 45%</p>
                     </div>
                 </div>
             </section>
 
             <!-- Charts Section -->
             <section id="charts" class="mb-12">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                <div class="grid grid-cols-1 gap-8">
+                    <div class="bg-white p-6 rounded-xl shadow-lg flex flex-col">
                         <h3 class="text-xl font-bold text-center mb-2 text-teal-800">การเปรียบเทียบผลงานกับเป้าหมาย</h3>
-                        <p class="text-center text-gray-600 mb-6 text-sm">แสดงให้เห็นว่าผลการดำเนินงานสูงกว่าเป้าหมายที่กำหนดในทุกตัวชี้วัดหลัก</p>
-                        <div class="chart-container">
+                        <p class="text-center text-gray-600 mb-6 text-sm">ผลการดำเนินงานสูงกว่าเป้าหมายที่กำหนดในทุกตัวชี้วัดหลัก</p>
+                        <div class="chart-container flex-grow">
                             <canvas id="kpiBarChart"></canvas>
-                        </div>
-                    </div>
-                    <div class="bg-white p-6 rounded-xl shadow-lg">
-                        <h3 class="text-xl font-bold text-center mb-2 text-teal-800">การพัฒนาทักษะดิจิทัลบุคลากร</h3>
-                        <p class="text-center text-gray-600 mb-6 text-sm">บุคลากรส่วนใหญ่ผ่านการอบรม สะท้อนถึงความพร้อมขององค์กร</p>
-                        <div class="chart-container">
-                            <canvas id="skillDoughnutChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -99,7 +89,7 @@
             <section id="analysis">
                  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div class="bg-white p-6 rounded-xl shadow-lg">
-                        <h3 class="text-xl font-bold mb-4 text-teal-800">จุดแข็งที่โดดเด่น (Our Strengths)</h3>
+                        <h3 class="text-xl font-bold mb-4 text-teal-800">จุดแข็งที่โดดเด่น (Strengths)</h3>
                         <ul class="space-y-4">
                             <li class="flex items-start">
                                 <span class="text-2xl mr-3">🏆</span>
@@ -167,26 +157,29 @@
             }
         };
 
-        // Bar Chart: KPI Comparison
+        Chart.register(ChartDataLabels);
+
+        const kpiChartData = {
+            labels: ['ป้องกันภัยทางไซเบอร์', 'ทบทวนสิทธิ์ใช้งาน', 'ความต่อเนื่องระบบ', 'พัฒนาทักษะดิจิทัล'],
+            datasets: [{
+                label: 'ผลการดำเนินงาน (%)',
+                data: [100, 100, 100, 94],
+                backgroundColor: 'rgba(20, 184, 166, 0.7)',
+                borderColor: 'rgba(15, 118, 110, 1)',
+                borderWidth: 1
+            }, {
+                label: 'เป้าหมาย (%)',
+                data: [90, 100, 95, 45],
+                backgroundColor: 'rgba(203, 213, 225, 0.7)',
+                borderColor: 'rgba(100, 116, 139, 1)',
+                borderWidth: 1
+            }]
+        };
+
         const kpiBarCtx = document.getElementById('kpiBarChart').getContext('2d');
         new Chart(kpiBarCtx, {
             type: 'bar',
-            data: {
-                labels: ['ป้องกันไซเบอร์', 'ความต่อเนื่องระบบ', 'พัฒนาทักษะดิจิทัล'],
-                datasets: [{
-                    label: 'ผลการดำเนินงาน (%)',
-                    data: [100, 100, 94],
-                    backgroundColor: 'rgba(20, 184, 166, 0.7)',
-                    borderColor: 'rgba(15, 118, 110, 1)',
-                    borderWidth: 1
-                }, {
-                    label: 'เป้าหมาย (%)',
-                    data: [90, 95, 45],
-                    backgroundColor: 'rgba(203, 213, 225, 0.7)',
-                    borderColor: 'rgba(100, 116, 139, 1)',
-                    borderWidth: 1
-                }]
-            },
+            data: kpiChartData,
             options: {
                 indexAxis: 'y',
                 responsive: true,
@@ -210,51 +203,18 @@
                         callbacks: {
                            title: tooltipTitleCallback
                         }
-                    }
-                }
-            }
-        });
-
-        // Doughnut Chart: Skill Development
-        const skillDoughnutCtx = document.getElementById('skillDoughnutChart').getContext('2d');
-        new Chart(skillDoughnutCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['ผ่านการอบรม', 'ยังไม่ผ่านการอบรม'],
-                datasets: [{
-                    data: [94, 6],
-                    backgroundColor: [
-                        'rgba(20, 184, 166, 0.8)',
-                        'rgba(226, 232, 240, 0.8)'
-                    ],
-                    borderColor: [
-                        'rgba(15, 118, 110, 1)',
-                        'rgba(148, 163, 184, 1)'
-                    ],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
                     },
-                    tooltip: {
-                        callbacks: {
-                            title: tooltipTitleCallback,
-                            label: function(context) {
-                                let label = context.label || '';
-                                if (label) {
-                                    label += ': ';
-                                }
-                                if (context.parsed !== null) {
-                                    label += context.parsed + '%';
-                                }
-                                return label;
-                            }
-                        }
+                    datalabels: {
+                        formatter: (value, ctx) => {
+                            return value + '%';
+                        },
+                        color: '#334155',
+                        font: {
+                            weight: 'bold'
+                        },
+                        anchor: 'end',
+                        align: 'start',
+                        offset: 4
                     }
                 }
             }
@@ -262,3 +222,4 @@
     </script>
 </body>
 </html>
+
