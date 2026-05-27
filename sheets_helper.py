@@ -12,8 +12,8 @@ SCOPES = [
 ]
 
 CREDENTIALS_FILE = "credentials.json"   # <- เปลี่ยนเป็นชื่อไฟล์ของคุณ
-SHEET_URL = "https://docs.google.com/..."  # <- วาง URL ของ Sheet ที่นี่
-WORKSHEET_NAME = "Sheet1"               # <- ชื่อ tab ของ sheet
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1MztCiuS6bT_sIfkLi-mBFvh8sm_H-8Exy3FhuNF1MEM/edit?usp=sharing"
+WORKSHEET_NAME = "งบนโยบาย"             # <- เปลี่ยนเป็น tab ที่ต้องการ
 
 
 def connect() -> gspread.Worksheet:
