@@ -1,7 +1,8 @@
 """
-เพิ่ม conditional formatting (สีพื้นหลัง) ให้ dropdown E, F, K
-ใน worksheet อนุมัตินอกแผน — ไม่แตะ column D
-สีทั้ง 17 ค่าไม่ซ้ำกันเลย
+เพิ่ม conditional formatting (สีพื้นหลัง) ให้ dropdown D, E, F, K
+ใน worksheet อนุมัตินอกแผน
+  D: ศูนย์วิทยาศาสตร์การแพทย์ = #bfe1f6 / อื่น ๆ = #ffcfc9
+  E, F, K: สี 17 แบบ ไม่ซ้ำกัน
 """
 
 import requests
@@ -106,8 +107,24 @@ def apply_colors():
         ok = delete_all_rules(headers, existing)
         print("ลบสำเร็จ" if ok else "ลบไม่สำเร็จ!")
 
-    reqs = []
-    i = 0
+    D_RANGE = {"sheetId": WS_ID, "startRowIndex": DATA_START, "endRowIndex": DATA_END,
+               "startColumnIndex": 3, "endColumnIndex": 4}
+
+    reqs = [
+        # D — ศูนย์วิทยาศาสตร์การแพทย์ → #bfe1f6
+        {"addConditionalFormatRule": {"index": 0, "rule": {"ranges": [D_RANGE],
+            "booleanRule": {"condition": {"type": "TEXT_CONTAINS",
+                "values": [{"userEnteredValue": "ศูนย์วิทยาศาสตร์การแพทย์"}]},
+                "format": {"backgroundColor": {"red": 191/255, "green": 225/255, "blue": 246/255}}}}}},
+        # D — อื่น ๆ (ไม่ว่าง) → #ffcfc9
+        {"addConditionalFormatRule": {"index": 1, "rule": {"ranges": [D_RANGE],
+            "booleanRule": {"condition": {"type": "CUSTOM_FORMULA",
+                "values": [{"userEnteredValue":
+                    '=AND(D3<>"",ISERROR(SEARCH("ศูนย์วิทยาศาสตร์การแพทย์",D3)))'}]},
+                "format": {"backgroundColor": {"red": 255/255, "green": 207/255, "blue": 201/255}}}}}},
+    ]
+
+    i = 2
     for cfg in [COL_E, COL_F, COL_K]:
         for value, color in cfg["colors"].items():
             reqs.append(make_rule(cfg["col"], value, color, i))
@@ -119,7 +136,7 @@ def apply_colors():
     )
 
     if resp.status_code == 200:
-        print(f"\nเพิ่ม {len(reqs)} rules ที่ E, F, K สำเร็จ!")
+        print(f"\nเพิ่ม {len(reqs)} rules (D+E+F+K) สำเร็จ!")
     else:
         print(f"Error {resp.status_code}: {resp.text}")
 
