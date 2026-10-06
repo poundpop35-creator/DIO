@@ -210,7 +210,9 @@ test("saving monitor condition keeps computer outcome, notes, audit, and checkbo
   assert.match(log[0][4], /"sheet":"2569\+จอ"/);
   assert.ok(formulas.get("2,12").includes("VALUE(K2)"));
   assert.ok(formulas.get("2,7").includes("VALUE(F2)"));
-  assert.ok(formulas.get("2,8").includes('I2="ทดแทนแล้ว"'));
+  // สถานะ pc/nb is the staff's dropdown: an unchanged value is never rewritten.
+  assert.equal(formulas.get("2,8"), undefined);
+  assert.equal(rows[1][7], "รอดำเนินการ");
   assert.throws(
     () => ctx.saveAsset(admin, { row: a.row, token: a.token, values: a }),
     /ถูกแก้ไขแล้ว/,
@@ -234,8 +236,22 @@ test("duplicates, invalid years, stale rows and formula edits are rejected befor
   );
   formulas.set("2,13", "=L2>5");
   assert.throws(
-    () => ctx.saveAsset(admin, { row: a.row, token: a.token, values: a }),
+    () =>
+      ctx.saveAsset(admin, {
+        row: a.row,
+        token: a.token,
+        values: { ...a, monitorCondition: "ชำรุด" },
+      }),
     /ยังเป็นสูตร/,
+  );
+  assert.throws(
+    () =>
+      ctx.saveAsset(admin, {
+        row: a.row,
+        token: a.token,
+        values: { ...a, computerCondition: "พัง" },
+      }),
+    /สถานะ pc\/nb ต้องเป็น/,
   );
   assert.equal(JSON.stringify(rows), before);
 });
@@ -272,4 +288,24 @@ test("OPEN_ACCESS lets anyone with the link read and edit without a code", () =>
   assert.equal(ctx.getInventory(s.token).assets.length, 2);
   ctx.saveAsset(s.token, { row: a.row, token: a.token, values: { ...a, notes: "แก้จากแอป" } });
   assert.equal(rows[2][14], "แก้จากแอป");
+});
+
+test("สถานะ pc/nb: choosing ชำรุด replaces the row's formula; clearing restores it", () => {
+  const { ctx, rows, admin, formulas } = setup();
+  formulas.set("2,8", "=IF(B2=...)");
+  let a = ctx.getInventory(admin).assets[0];
+  assert.equal(a.computerCondition, "รอดำเนินการ");
+  ctx.saveAsset(admin, {
+    row: a.row,
+    token: a.token,
+    values: { ...a, computerCondition: "ชำรุด" },
+  });
+  assert.equal(rows[1][7], "ชำรุด");
+  a = ctx.getInventory(admin).assets[0];
+  ctx.saveAsset(admin, {
+    row: a.row,
+    token: a.token,
+    values: { ...a, computerCondition: "" },
+  });
+  assert.ok(formulas.get("2,8").includes('I2="ทดแทนแล้ว"'));
 });

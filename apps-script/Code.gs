@@ -1,5 +1,5 @@
 /** DPTC Inventory — Google Sheet is the only source of truth.
- * Configure SPREADSHEET_ID and ACCESS_RULES in Script Properties.
+ * Configure SPREADSHEET_ID, then ACCESS_RULES (access codes) or OPEN_ACCESS=true, in Script Properties.
  * Never put real access codes or personal inventory data in this repository.
  */
 const DPTC_DEPARTMENTS = [
@@ -16,7 +16,8 @@ const DPTC_HEADERS = {
   computerCode: ["AMS", "เลขครุภัณฑ์ PC/NB"],
   computerYear: ["ปีที่จัดซื้อ", "ปีที่จัดซื้อ (PC/NB)", "ปีซื้อ PC/NB"],
   computerAge: ["อายุ PC/NB"],
-  computerStatus: ["สถานะ pc/nb", "สถานะ PC/NB", "สถานะทดแทนคอม", "สถานะทดแทน"],
+  // สภาพคอม: ดรอปดาวที่เจ้าหน้าที่เลือก เช่น ปกติ / รอดำเนินการ / ชำรุด
+  computerCondition: ["สถานะ pc/nb", "สถานะ PC/NB", "สถานะทดแทนคอม", "สถานะทดแทน"],
   computerOutcome: ["ผลดำเนินการทดแทน", "ผลดำเนินการทดแทนคอม", "ผลทดแทนคอม"],
   monitorCode: ["จอ", "เลขครุภัณฑ์จอ"],
   monitorYear: ["ปีที่จัดซื้อจอ"],
@@ -43,6 +44,28 @@ const DPTC_EDITABLE = [
   "notes",
   "reason",
 ];
+const DPTC_TYPES = ["PC", "NB", "PC (ห้องสมุด)"];
+const DPTC_COMPUTER_CONDITIONS = ["ปกติ", "รอดำเนินการ", "ชำรุด", "อยู่ระหว่างซ่อม"];
+const DPTC_MONITOR_CONDITIONS = ["ปกติ", "ชำรุด", "อยู่ระหว่างซ่อม"];
+/** Allowed values of a column's dropdown (data validation on the given row), or null. */
+function dropdown_(s, row, col) {
+  try {
+    const rule = s.getRange(row, col + 1).getDataValidation();
+    if (!rule) return null;
+    const type = rule.getCriteriaType(),
+      values = rule.getCriteriaValues();
+    const inList =
+      (typeof SpreadsheetApp !== "undefined" &&
+        SpreadsheetApp.DataValidationCriteria &&
+        type === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) ||
+      String(type) === "VALUE_IN_LIST";
+    if (!inList || !Array.isArray(values[0])) return null; // e.g. a dropdown from a range: use the fallback list
+    const list = values[0].map(text_).filter(Boolean);
+    return list.length ? list : null;
+  } catch (e) {
+    return null;
+  }
+}
 const DPTC_LOG_HEADERS = [
   ["วันที่/เวลา", "เวลา"],
   ["การกระทำ"],
@@ -143,7 +166,7 @@ function schema_(s) {
     "computerCode",
     "computerYear",
     "computerAge",
-    "computerStatus",
+    "computerCondition",
     "computerOutcome",
     "monitorCode",
     "monitorYear",
@@ -278,6 +301,10 @@ function getInventory(token) {
   return {
     assets,
     user,
+    computerConditions:
+      dropdown_(s, 2, schema.map.computerCondition) || DPTC_COMPUTER_CONDITIONS,
+    monitorConditions:
+      dropdown_(s, 2, schema.map.monitorCondition) || DPTC_MONITOR_CONDITIONS,
     year: year_(),
     sheetUrl: s.getParent().getUrl() + "#gid=" + s.getSheetId(),
   };
@@ -297,8 +324,11 @@ function validate_(input, user) {
     if (Object.prototype.hasOwnProperty.call(input, k))
       out[k] = text_(input[k]);
   });
-  if (!["PC", "NB", "PC (ห้องสมุด)"].includes(out.type))
-    throw new Error("เลือกประเภท PC / NB / PC (ห้องสมุด)");
+  if (Object.prototype.hasOwnProperty.call(input, "computerCondition"))
+    out.computerCondition = text_(input.computerCondition);
+  if ((out.computerCondition || "").length > 100)
+    throw new Error("สถานะ pc/nb ยาวเกินกำหนด");
+  if (!out.type || out.type.length > 100) throw new Error("เลือกประเภท");
   if (!out.owner || out.owner.length > 180)
     throw new Error("กรอกผู้รับผิดชอบ ไม่เกิน 180 ตัวอักษร");
   if (!DPTC_DEPARTMENTS.includes(out.department))
@@ -309,12 +339,8 @@ function validate_(input, user) {
     if (!["", "รอดำเนินการ", "ทดแทนแล้ว", "ไม่ทดแทน"].includes(out[k] || ""))
       throw new Error("ผลทดแทนไม่ถูกต้อง");
   });
-  if (
-    !["", "ปกติ", "ชำรุด", "อยู่ระหว่างซ่อม"].includes(
-      out.monitorCondition || "",
-    )
-  )
-    throw new Error("สถานะการใช้งานจอไม่ถูกต้อง");
+  if ((out.monitorCondition || "").length > 100)
+    throw new Error("สถานะจอยาวเกินกำหนด");
   out.computerYear = validateYear_(out.computerYear, "ปีซื้อคอม");
   out.monitorYear = validateYear_(out.monitorYear, "ปีซื้อจอ");
   ["computerCode", "monitorCode"].forEach((k) => {
@@ -358,24 +384,14 @@ function ageFormula_(row, yearCol, typeCol) {
     '))," ")'.replace('" ")', '"")')
   );
 }
+/** Automatic สถานะ pc/nb (the sheet's original formula), used when a manual status is cleared. */
 function computerFormula_(r, m) {
   const b = col_(m.type) + r,
     a = col_(m.computerAge) + r,
     o = col_(m.computerOutcome) + r;
   return (
-    "=IF(" +
-    b +
-    '="","",IF(OR(' +
-    o +
-    '="ทดแทนแล้ว",' +
-    o +
-    '="ไม่ทดแทน"),' +
-    o +
-    ",IF(" +
-    a +
-    '="","ตรวจสอบข้อมูล",IF(' +
-    a +
-    '<=5,"ปกติ","รอดำเนินการ"))))'
+    "=IF(" + b + '="","",IF(OR(' + o + '="ทดแทนแล้ว",' + o + '="ไม่ทดแทน"),' + o +
+    ",IF(" + a + '="","ตรวจสอบข้อมูล",IF(' + a + '<=5,"ปกติ","รอดำเนินการ"))))'
   );
 }
 function saveAsset(token, payload) {
@@ -418,10 +434,14 @@ function saveAsset(token, payload) {
           "แถวเตรียมไว้เต็ม กรุณาเพิ่มแถวและสูตรในชีตก่อนเพิ่มรายการ",
         );
     }
+    const types = dropdown_(s, r, map.type) || DPTC_TYPES;
+    if (types.indexOf(item.type) < 0 && item.type !== text_(old[map.type]))
+      throw new Error("ประเภทต้องเป็น: " + types.join(" / "));
     for (const key of ["computerCode", "monitorCode"]) {
       const value = item[key];
       if (
         value &&
+        value !== text_(old[map[key]]) &&
         rows.some(
           (row, i) =>
             i + 2 !== r &&
@@ -439,12 +459,34 @@ function saveAsset(token, payload) {
       .getRange(r, 1, 1, headers.length)
       .getFormulas()[0];
     for (const k of DPTC_EDITABLE) {
+      if (k === "monitorCondition") continue;
       if (existingFormulas[map[k]])
         throw new Error(
           "ช่อง " +
             headers[map[k]] +
             " ยังเป็นสูตร กรุณาปรับให้เป็นช่องกรอกก่อนบันทึก",
         );
+    }
+    // สถานะ pc/nb และสถานะจอ: write only when changed, and only values the dropdown allows.
+    const conditionWrites = [];
+    for (const [k, fallback, label] of [
+      ["computerCondition", DPTC_COMPUTER_CONDITIONS, "สถานะ pc/nb"],
+      ["monitorCondition", DPTC_MONITOR_CONDITIONS, "สถานะจอ"],
+    ]) {
+      if (!Object.prototype.hasOwnProperty.call(item, k)) continue;
+      const before = text_(old[map[k]]),
+        value = item[k] || "";
+      if (value === before) continue;
+      const allowed = dropdown_(s, r, map[k]) || fallback;
+      if (value && allowed.indexOf(value) < 0)
+        throw new Error(label + " ต้องเป็น: " + allowed.join(" / "));
+      // สถานะ pc/nb may still hold the auto-status formula: a chosen value replaces it
+      // in that row only (same as picking from the dropdown in the sheet).
+      if (k === "monitorCondition" && existingFormulas[map[k]])
+        throw new Error(
+          "ช่อง " + headers[map[k]] + " ยังเป็นสูตร กรุณาเปลี่ยนเป็นดรอปดาวก่อนบันทึก",
+        );
+      conditionWrites.push([k, value]);
     }
     if (payload.row == null) {
       const next =
@@ -453,19 +495,38 @@ function saveAsset(token, payload) {
       s.getRange(r, map.id + 1).setValue(next);
       changed = true;
     }
-    DPTC_EDITABLE.forEach((k) => {
-      if (Object.prototype.hasOwnProperty.call(item, k)) {
-        s.getRange(r, map[k] + 1).setValue(safe_(item[k]));
-        changed = true;
-      }
+    if (
+      payload.row == null &&
+      !existingFormulas[map.computerCondition] &&
+      !item.computerCondition
+    )
+      conditionWrites.push(["computerCondition", ""]);
+    conditionWrites.forEach(([k, value]) => {
+      const cell = s.getRange(r, map[k] + 1);
+      if (k === "computerCondition" && !value)
+        cell.setFormula(computerFormula_(r, map)); // "อัตโนมัติตามอายุ" → the sheet formula again
+      else cell.setValue(value);
+      changed = true;
     });
-    s.getRange(r, map.computerAge + 1).setFormula(
-      ageFormula_(r, map.computerYear, map.type),
+    // Write only cells whose value really changes (an untouched cell keeps its exact text).
+    const fieldWrites = DPTC_EDITABLE.filter(
+      (k) =>
+        k !== "monitorCondition" &&
+        Object.prototype.hasOwnProperty.call(item, k) &&
+        (payload.row == null || text_(item[k]) !== text_(old[map[k]])),
     );
-    s.getRange(r, map.monitorAge + 1).setFormula(
-      ageFormula_(r, map.monitorYear, map.type),
-    );
-    s.getRange(r, map.computerStatus + 1).setFormula(computerFormula_(r, map));
+    if (payload.row != null && !fieldWrites.length && !conditionWrites.length)
+      return { ok: true, row: r, unchanged: true, warning: "" };
+    fieldWrites.forEach((k) => {
+      s.getRange(r, map[k] + 1).setValue(safe_(item[k]));
+      changed = true;
+    });
+    [
+      [map.computerAge, ageFormula_(r, map.computerYear, map.type)],
+      [map.monitorAge, ageFormula_(r, map.monitorYear, map.type)],
+    ].forEach(([c, f]) => {
+      if (existingFormulas[c] !== f) s.getRange(r, c + 1).setFormula(f);
+    });
     if (map.editor >= 0)
       s.getRange(r, map.editor + 1).setValue(safe_(user.label));
     if (map.time >= 0) s.getRange(r, map.time + 1).setValue(new Date());
@@ -486,8 +547,14 @@ function saveAsset(token, payload) {
           details: JSON.stringify({
             sheet: s.getName(),
             row: r,
-            before: old,
-            after: item,
+            // readable change list: column header → [before, after]
+            changes: fieldWrites
+              .concat(conditionWrites.map(([k]) => k))
+              .filter((k) => text_(old[map[k]]) !== text_(item[k]))
+              .reduce((acc, k) => {
+                acc[headers[map[k]]] = [text_(old[map[k]]), text_(item[k])];
+                return acc;
+              }, {}),
           }),
         }),
       );

@@ -499,7 +499,7 @@ main {
 /* ---------- ไทล์สิ่งที่ต้องทำ ---------- */
 .alert-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 .alert-tile {
@@ -1303,6 +1303,21 @@ dialog::backdrop {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+.load-error {
+  background: var(--bad-soft);
+  border: 2px solid #fca5a5;
+  border-radius: 14px;
+  padding: 22px 24px;
+  color: #7f1d1d;
+}
+.load-error h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+.load-error p {
+  margin: 0 0 14px;
+  font-size: 15px;
+}
 .loading {
   padding: 70px;
   text-align: center;
@@ -1341,7 +1356,7 @@ dialog::backdrop {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .alert-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .dept-bar {
     grid-template-columns: 190px 1fr 84px;
@@ -1428,6 +1443,9 @@ dialog::backdrop {
   }
   .stat-foot {
     font-size: 13px;
+  }
+  .alert-grid {
+    grid-template-columns: 1fr;
   }
   .alert-num {
     font-size: 38px;

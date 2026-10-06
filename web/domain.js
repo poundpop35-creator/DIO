@@ -6,6 +6,7 @@ export const DEPARTMENTS = [
 ];
 export const OUTCOMES = ["", "รอดำเนินการ", "ทดแทนแล้ว", "ไม่ทดแทน"];
 export const CONDITIONS = ["", "ปกติ", "ชำรุด", "อยู่ระหว่างซ่อม"];
+export const COMPUTER_CONDITIONS = ["ปกติ", "รอดำเนินการ", "ชำรุด", "อยู่ระหว่างซ่อม"];
 export const currentYear = () =>
   Number(
     new Intl.DateTimeFormat("en", {
@@ -23,19 +24,31 @@ export const isPC = (a) => ["PC", "PC (ห้องสมุด)"].includes(a.ty
 export const validMonitor = (a) =>
   /^7440-006-\d{2}-\d{2}-\d{4}$/.test(String(a.monitorCode || "").trim());
 export const hasMonitorInfo = (a) => Boolean(a.monitorCode || a.monitorYear);
+export const isDone = (outcome) => ["ทดแทนแล้ว", "ไม่ทดแทน"].includes(outcome);
+const cond = (v) => String(v ?? "").trim();
+// สถานะคอม: ผลทดแทน > สภาพที่เลือกในคอลัมน์ "สถานะ pc/nb" (ชำรุด / อยู่ระหว่างซ่อม) > อายุ
 export function computerStatus(a, now = currentYear()) {
-  if (["ทดแทนแล้ว", "ไม่ทดแทน"].includes(a.computerOutcome))
-    return a.computerOutcome;
+  if (isDone(a.computerOutcome)) return a.computerOutcome;
+  const c = cond(a.computerCondition);
+  if (["ชำรุด", "อยู่ระหว่างซ่อม", "ทดแทนแล้ว", "ไม่ทดแทน"].includes(c)) return c;
   const n = age(a.computerYear, now);
-  return n === null ? "ตรวจปีซื้อ" : n > 5 ? "เข้าเกณฑ์อายุ" : "ปกติ";
+  if (n === null) return "ตรวจปีซื้อ";
+  if (n > 5) return "เข้าเกณฑ์อายุ";
+  // The sheet formula only gives these for old/undated machines, so here they were picked by hand.
+  return c === "รอดำเนินการ" || c === "ตรวจสอบข้อมูล" ? c : "ปกติ";
 }
 export const monitorStatus = (a) =>
   a.monitorCondition ||
   (hasMonitorInfo(a) ? "ยังไม่ระบุสภาพ" : "ไม่มีข้อมูลจอ");
+export const computerOld = (a, now = currentYear()) =>
+  isComputer(a) &&
+  !isDone(a.computerOutcome) &&
+  !isDone(cond(a.computerCondition)) &&
+  (age(a.computerYear, now) ?? -1) > 5;
+export const computerBroken = (a) =>
+  isComputer(a) && cond(a.computerCondition) === "ชำรุด" && !isDone(a.computerOutcome);
 export const monitorNeedsAction = (a) =>
-  validMonitor(a) &&
-  a.monitorCondition === "ชำรุด" &&
-  !["ทดแทนแล้ว", "ไม่ทดแทน"].includes(a.monitorOutcome);
+  hasMonitorInfo(a) && cond(a.monitorCondition) === "ชำรุด" && !isDone(a.monitorOutcome);
 export function issues(a, now = currentYear()) {
   const out = [];
   if (age(a.computerYear, now) === null) out.push("ตรวจปีซื้อคอม");
@@ -62,12 +75,11 @@ export function summarize(assets, now = currentYear()) {
     monitors: new Set(monitors.map((a) => a.monitorCode.trim())).size,
     oldComputers: computers.filter((a) => (age(a.computerYear, now) ?? -1) > 5)
       .length,
-    pendingComputers: computers.filter(
-      (a) => computerStatus(a, now) === "เข้าเกณฑ์อายุ",
-    ).length,
+    pendingComputers: computers.filter((a) => computerOld(a, now)).length,
+    brokenComputers: computers.filter(computerBroken).length,
     oldMonitors: monitors.filter((a) => (age(a.monitorYear, now) ?? -1) > 5)
       .length,
-    brokenMonitors: monitors.filter(monitorNeedsAction).length,
+    brokenMonitors: assets.filter(monitorNeedsAction).length,
     issues: assets.filter((a) => issues(a, now).length).length,
     missingMonitor: assets.filter((a) => !a.monitorCode).length,
     invalidMonitor: assets.filter((a) => a.monitorCode && !validMonitor(a))

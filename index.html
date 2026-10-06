@@ -544,7 +544,7 @@ main {
 /* ---------- ไทล์สิ่งที่ต้องทำ ---------- */
 .alert-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 .alert-tile {
@@ -1348,6 +1348,21 @@ dialog::backdrop {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+.load-error {
+  background: var(--bad-soft);
+  border: 2px solid #fca5a5;
+  border-radius: 14px;
+  padding: 22px 24px;
+  color: #7f1d1d;
+}
+.load-error h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+.load-error p {
+  margin: 0 0 14px;
+  font-size: 15px;
+}
 .loading {
   padding: 70px;
   text-align: center;
@@ -1386,7 +1401,7 @@ dialog::backdrop {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .alert-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .dept-bar {
     grid-template-columns: 190px 1fr 84px;
@@ -1473,6 +1488,9 @@ dialog::backdrop {
   }
   .stat-foot {
     font-size: 13px;
+  }
+  .alert-grid {
+    grid-template-columns: 1fr;
   }
   .alert-num {
     font-size: 38px;
@@ -1764,6 +1782,7 @@ dialog::backdrop {
 ];
 const OUTCOMES = ["", "รอดำเนินการ", "ทดแทนแล้ว", "ไม่ทดแทน"];
 const CONDITIONS = ["", "ปกติ", "ชำรุด", "อยู่ระหว่างซ่อม"];
+const COMPUTER_CONDITIONS = ["ปกติ", "รอดำเนินการ", "ชำรุด", "อยู่ระหว่างซ่อม"];
 const currentYear = () =>
   Number(
     new Intl.DateTimeFormat("en", {
@@ -1781,19 +1800,31 @@ const isPC = (a) => ["PC", "PC (ห้องสมุด)"].includes(a.type);
 const validMonitor = (a) =>
   /^7440-006-\d{2}-\d{2}-\d{4}$/.test(String(a.monitorCode || "").trim());
 const hasMonitorInfo = (a) => Boolean(a.monitorCode || a.monitorYear);
+const isDone = (outcome) => ["ทดแทนแล้ว", "ไม่ทดแทน"].includes(outcome);
+const cond = (v) => String(v ?? "").trim();
+// สถานะคอม: ผลทดแทน > สภาพที่เลือกในคอลัมน์ "สถานะ pc/nb" (ชำรุด / อยู่ระหว่างซ่อม) > อายุ
 function computerStatus(a, now = currentYear()) {
-  if (["ทดแทนแล้ว", "ไม่ทดแทน"].includes(a.computerOutcome))
-    return a.computerOutcome;
+  if (isDone(a.computerOutcome)) return a.computerOutcome;
+  const c = cond(a.computerCondition);
+  if (["ชำรุด", "อยู่ระหว่างซ่อม", "ทดแทนแล้ว", "ไม่ทดแทน"].includes(c)) return c;
   const n = age(a.computerYear, now);
-  return n === null ? "ตรวจปีซื้อ" : n > 5 ? "เข้าเกณฑ์อายุ" : "ปกติ";
+  if (n === null) return "ตรวจปีซื้อ";
+  if (n > 5) return "เข้าเกณฑ์อายุ";
+  // The sheet formula only gives these for old/undated machines, so here they were picked by hand.
+  return c === "รอดำเนินการ" || c === "ตรวจสอบข้อมูล" ? c : "ปกติ";
 }
 const monitorStatus = (a) =>
   a.monitorCondition ||
   (hasMonitorInfo(a) ? "ยังไม่ระบุสภาพ" : "ไม่มีข้อมูลจอ");
+const computerOld = (a, now = currentYear()) =>
+  isComputer(a) &&
+  !isDone(a.computerOutcome) &&
+  !isDone(cond(a.computerCondition)) &&
+  (age(a.computerYear, now) ?? -1) > 5;
+const computerBroken = (a) =>
+  isComputer(a) && cond(a.computerCondition) === "ชำรุด" && !isDone(a.computerOutcome);
 const monitorNeedsAction = (a) =>
-  validMonitor(a) &&
-  a.monitorCondition === "ชำรุด" &&
-  !["ทดแทนแล้ว", "ไม่ทดแทน"].includes(a.monitorOutcome);
+  hasMonitorInfo(a) && cond(a.monitorCondition) === "ชำรุด" && !isDone(a.monitorOutcome);
 function issues(a, now = currentYear()) {
   const out = [];
   if (age(a.computerYear, now) === null) out.push("ตรวจปีซื้อคอม");
@@ -1820,12 +1851,11 @@ function summarize(assets, now = currentYear()) {
     monitors: new Set(monitors.map((a) => a.monitorCode.trim())).size,
     oldComputers: computers.filter((a) => (age(a.computerYear, now) ?? -1) > 5)
       .length,
-    pendingComputers: computers.filter(
-      (a) => computerStatus(a, now) === "เข้าเกณฑ์อายุ",
-    ).length,
+    pendingComputers: computers.filter((a) => computerOld(a, now)).length,
+    brokenComputers: computers.filter(computerBroken).length,
     oldMonitors: monitors.filter((a) => (age(a.monitorYear, now) ?? -1) > 5)
       .length,
-    brokenMonitors: monitors.filter(monitorNeedsAction).length,
+    brokenMonitors: assets.filter(monitorNeedsAction).length,
     issues: assets.filter((a) => issues(a, now).length).length,
     missingMonitor: assets.filter((a) => !a.monitorCode).length,
     invalidMonitor: assets.filter((a) => a.monitorCode && !validMonitor(a))
@@ -1878,76 +1908,77 @@ function csvCell(value) {
 
 // ข้อมูลจริงจากชีต "2569+จอ" (ไฟล์ ครุภัณฑ์กองแผน) ณ 6 ต.ค. 2569
 // รหัสครุภัณฑ์ ปีซื้อ ฝ่าย และสถานะเป็นค่าจริง ชื่อบุคคลไม่ถูกเผยแพร่ในไฟล์สาธารณะนี้
-// ดูชื่อผู้รับผิดชอบได้ในชีต หรือในแอปผ่าน Apps Script ที่ต้องใช้รหัสเข้าใช้งาน
+// ดูชื่อผู้รับผิดชอบได้ในชีต หรือในแอปผ่าน Apps Script
 const SNAPSHOT_LABEL = "6 ต.ค. 2569";
 // [แถวในชีต, ลำดับ, ประเภท, ผู้รับผิดชอบ(ไม่ใช่ชื่อบุคคล), กลุ่ม/ฝ่าย, AMS, ปีซื้อคอม, ผลทดแทนคอม,
-//  รหัสจอ, ปีซื้อจอ, สถานะจอ, ผลทดแทนจอ, หมายเหตุ, เหตุผลขอซื้อ]
+//  รหัสจอ, ปีซื้อจอ, สถานะจอ, ผลทดแทนจอ, หมายเหตุ, เหตุผลขอซื้อ, สถานะ pc/nb]
 const SNAPSHOT_ROWS = [
-  [2, 1, "PC", "ผู้อำนวยการกองแผนงานและวิชาการ", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0106", 2568, "", "", 2568, "ปกติ", "", "", ""],
-  [3, 2, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0107", 2569, "", "7440-006-02-24-0141", 2569, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [4, 3, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0089", 2559, "รอดำเนินการ", "7440-006-02-24-0097", 2556, "ปกติ", "", "", ""],
-  [5, 4, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0090", 2562, "รอดำเนินการ", "7440-006-02-24-0087", 2562, "ปกติ", "", "", ""],
-  [6, 5, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0091", 2564, "", "7440-006-02-24-0090", 2564, "ปกติ", "", "", ""],
-  [7, 6, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0093", 2565, "", "7440-006-02-24-0088", 2565, "ปกติ", "", "", ""],
-  [8, 7, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0097", 2565, "", "7440-006-02-24-0089", 2565, "ปกติ", "", "", ""],
-  [9, 8, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0112", 2569, "", "7440-006-02-24-0144", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", ""],
-  [10, 9, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0066", 2556, "รอดำเนินการ", "", 2556, "ปกติ", "", "", ""],
-  [11, 10, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0098", 2563, "รอดำเนินการ", "7440-006-02-24-0079", 2559, "ปกติ", "", "", ""],
-  [12, 11, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0113", 2569, "", "7440-006-02-24-0145", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", ""],
-  [13, 12, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0104", 2566, "", "7440-006-02-24-0086", 2566, "ปกติ", "", "", ""],
-  [14, 13, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0109", 2569, "", "7440-006-02-24-0142", 2569, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [15, 14, "PC", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0079", 2558, "รอดำเนินการ", "7440-006-02-24-0119", 2567, "ปกติ", "", "", ""],
-  [16, 15, "PC", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0094", 2565, "", "7440-006-02-24-0105", 2565, "ปกติ", "", "", ""],
-  [17, 16, "PC", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0095", 2565, "", "7440-006-02-24-0106", 2565, "ปกติ", "", "", ""],
-  [18, 17, "PC", "กลุ่มวิชาการและวิเทศสัมพันธ์", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0096", 2565, "", "รอตรวจรหัส", 2565, "ปกติ", "", "", ""],
-  [19, 18, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0105", 2567, "", "7440-006-02-24-0121", 2567, "ปกติ", "", "", ""],
-  [20, 19, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0111", 2569, "", "7440-006-02-24-0139", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", ""],
-  [21, 20, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0074", 2548, "รอดำเนินการ", "7440-006-02-24-0143", 2569, "ปกติ", "", "", ""],
-  [22, 21, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0092", 2565, "", "7440-006-02-24-0137", 2569, "ปกติ", "", "", ""],
-  [23, 22, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0110", 2569, "", "7440-006-02-24-0103", 2548, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [24, 23, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0108", 2569, "", "7440-006-02-24-0140", 2569, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [25, 24, "NB", "", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0022", 2562, "รอดำเนินการ", "", 2562, "ปกติ", "", "ใช้เป็นเครื่องแสกนหน้า", ""],
-  [26, 25, "NB", "", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0040", 2566, "", "7730-005-01-24-0002", 2559, "ปกติ", "", "", ""],
-  [27, 26, "NB", "กลุ่มบริหารงานทั่วไป", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0041 (ชำรุด)", 2566, "", "", "", "", "", "", ""],
-  [28, 27, "NB", "", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0049", 2566, "", "", "", "", "", "", ""],
-  [29, 28, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0034", 2565, "", "", "", "", "", "", ""],
-  [30, 29, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0044", 2566, "", "7440-006-02-24-0078", 2569, "ปกติ", "", "", ""],
-  [31, 30, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0045", 2566, "", "", "", "", "", "", ""],
-  [32, 31, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0050", 2566, "", "", "", "", "", "", ""],
-  [33, 32, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0035", 2565, "", "", "", "", "", "", ""],
-  [34, 33, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0042", 2566, "", "7440-006-02-24-0138", 2569, "ปกติ", "", "", ""],
-  [35, 34, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0053", 2566, "", "7440-006-02-24-0120", 2567, "ปกติ", "", "", ""],
-  [36, 35, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0048", 2566, "", "", "", "", "", "", ""],
-  [37, 36, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0055", 2569, "", "", "", "", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [38, 37, "NB", "กลุ่มวิชาการและวิเทศสัมพันธ์", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0029", 2569, "", "", "", "", "", "ชำรุด", ""],
-  [39, 38, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0054", 2569, "", "7440-006-02-24-0107", 2565, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [40, 39, "NB", "กลุ่มวิชาการและวิเทศสัมพันธ์", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0037", 2565, "", "", "", "", "", "", ""],
-  [41, 40, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0038", 2565, "", "7440-006-02-24-0108", 2558, "ปกติ", "", "", ""],
-  [42, 41, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0046", 2566, "", "", "", "", "", "", ""],
-  [43, 42, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0052", 2566, "", "", "", "", "", "", ""],
-  [44, 43, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0047", 2566, "", "7440-006-02-24-0076", 2556, "ปกติ", "", "", ""],
-  [45, 44, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0030", 2563, "รอดำเนินการ", "", "", "", "", "", ""],
-  [46, 45, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0051", 2566, "", "", "", "", "", "", ""],
-  [47, 46, "NB", "เครื่อง หัวหน้ากลุ่มติดตาม", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0059", 2569, "", "7440-001-01-24-0110", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", ""],
-  [48, 47, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0043", 2566, "", "", "", "", "", "", ""],
-  [49, 48, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0056", 2569, "", "7440-006-02-24-0080", 2565, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [50, 49, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0058", 2569, "", "7440-006-02-24-0096", 2563, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", ""],
-  [51, 50, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0036", 2565, "", "7440-006-02-24-0118", 2567, "ปกติ", "", "", ""],
-  [52, 51, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0039", 2565, "", "", "", "", "", "", ""],
-  [53, 52, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0057", 2569, "", "7440-006-02-24-0101", 2556, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", ""],
-  [54, 53, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0099", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", ""],
-  [55, 54, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0100", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", ""],
-  [56, 55, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0101", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", ""],
-  [57, 56, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0102", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", ""],
-  [58, 57, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0103", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", ""],
+  [2, 1, "PC", "ผู้อำนวยการกองแผนงานและวิชาการ", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0106", 2568, "", "", 2568, "ปกติ", "", "", "", "ปกติ"],
+  [3, 2, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0107", 2569, "", "7440-006-02-24-0141", 2569, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [4, 3, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0089", 2559, "รอดำเนินการ", "7440-006-02-24-0097", 2556, "ปกติ", "", "", "", "รอดำเนินการ"],
+  [5, 4, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0090", 2562, "รอดำเนินการ", "7440-006-02-24-0087", 2562, "ปกติ", "", "", "", "รอดำเนินการ"],
+  [6, 5, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0091", 2564, "", "7440-006-02-24-0090", 2564, "ปกติ", "", "", "", "ปกติ"],
+  [7, 6, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0093", 2565, "", "7440-006-02-24-0088", 2565, "ปกติ", "", "", "", "ปกติ"],
+  [8, 7, "PC", "", "ฝ่ายบริหารทั่วไป", "7440-001-01-24-0097", 2565, "", "7440-006-02-24-0089", 2565, "ปกติ", "", "", "", "ปกติ"],
+  [9, 8, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0112", 2569, "", "7440-006-02-24-0144", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", "", "ปกติ"],
+  [10, 9, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0066", 2556, "รอดำเนินการ", "", 2556, "ปกติ", "", "", "", "รอดำเนินการ"],
+  [11, 10, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0098", 2563, "รอดำเนินการ", "7440-006-02-24-0079", 2559, "ปกติ", "", "", "", "รอดำเนินการ"],
+  [12, 11, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0113", 2569, "", "7440-006-02-24-0145", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", "", "ปกติ"],
+  [13, 12, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0104", 2566, "", "7440-006-02-24-0086", 2566, "ปกติ", "", "", "", "ปกติ"],
+  [14, 13, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0109", 2569, "", "7440-006-02-24-0142", 2569, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [15, 14, "PC", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0079", 2558, "รอดำเนินการ", "7440-006-02-24-0119", 2567, "ปกติ", "", "", "", "รอดำเนินการ"],
+  [16, 15, "PC", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0094", 2565, "", "7440-006-02-24-0105", 2565, "ปกติ", "", "", "", "ปกติ"],
+  [17, 16, "PC", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0095", 2565, "", "7440-006-02-24-0106", 2565, "ปกติ", "", "", "", "ปกติ"],
+  [18, 17, "PC", "กลุ่มวิชาการและวิเทศสัมพันธ์", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0096", 2565, "", "รอตรวจรหัส", 2565, "ปกติ", "", "", "", "ปกติ"],
+  [19, 18, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0105", 2567, "", "7440-006-02-24-0121", 2567, "ปกติ", "", "", "", "ปกติ"],
+  [20, 19, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0111", 2569, "", "7440-006-02-24-0139", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", "", "ปกติ"],
+  [21, 20, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0074", 2548, "รอดำเนินการ", "7440-006-02-24-0143", 2569, "ปกติ", "", "", "", "รอดำเนินการ"],
+  [22, 21, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0092", 2565, "", "7440-006-02-24-0137", 2569, "ปกติ", "", "", "", "ปกติ"],
+  [23, 22, "PC", "", "กลุ่มติดตามและประเมินผล", "7440-001-01-24-0110", 2569, "", "7440-006-02-24-0103", 2548, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [24, 23, "PC", "", "กลุ่มนโยบายและแผน", "7440-001-01-24-0108", 2569, "", "7440-006-02-24-0140", 2569, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [25, 24, "NB", "", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0022", 2562, "รอดำเนินการ", "", 2562, "ปกติ", "", "ใช้เป็นเครื่องแสกนหน้า", "", "รอดำเนินการ"],
+  [26, 25, "NB", "", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0040", 2566, "", "7730-005-01-24-0002", 2559, "ปกติ", "", "", "", "ปกติ"],
+  [27, 26, "NB", "กลุ่มบริหารงานทั่วไป", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0041 (ชำรุด)", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [28, 27, "NB", "", "ฝ่ายบริหารทั่วไป", "7440-001-03-24-0049", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [29, 28, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0034", 2565, "", "", "", "", "", "", "", "ปกติ"],
+  [30, 29, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0044", 2566, "", "7440-006-02-24-0078", 2569, "ปกติ", "", "", "", "ปกติ"],
+  [31, 30, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0045", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [32, 31, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0050", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [33, 32, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0035", 2565, "", "", "", "", "", "", "", "ปกติ"],
+  [34, 33, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0042", 2566, "", "7440-006-02-24-0138", 2569, "ปกติ", "", "", "", "ปกติ"],
+  [35, 34, "NB", "", "กลุ่มนโยบายและแผน", "7440-001-03-24-0053", 2566, "", "7440-006-02-24-0120", 2567, "ปกติ", "", "", "", "ปกติ"],
+  [36, 35, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0048", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [37, 36, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0055", 2569, "", "", "", "", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [38, 37, "NB", "กลุ่มวิชาการและวิเทศสัมพันธ์", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0029", 2569, "", "", "", "", "", "ชำรุด", "", "ปกติ"],
+  [39, 38, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0054", 2569, "", "7440-006-02-24-0107", 2565, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [40, 39, "NB", "กลุ่มวิชาการและวิเทศสัมพันธ์", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0037", 2565, "", "", "", "", "", "", "", "ปกติ"],
+  [41, 40, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0038", 2565, "", "7440-006-02-24-0108", 2558, "ปกติ", "", "", "", "ปกติ"],
+  [42, 41, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0046", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [43, 42, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0052", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [44, 43, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0047", 2566, "", "7440-006-02-24-0076", 2556, "ปกติ", "", "", "", "ปกติ"],
+  [45, 44, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0030", 2563, "รอดำเนินการ", "", "", "", "", "", "", "รอดำเนินการ"],
+  [46, 45, "NB", "", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-03-24-0051", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [47, 46, "NB", "เครื่อง หัวหน้ากลุ่มติดตาม", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0059", 2569, "", "7440-001-01-24-0110", 2569, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", "", "ปกติ"],
+  [48, 47, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0043", 2566, "", "", "", "", "", "", "", "ปกติ"],
+  [49, 48, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0056", 2569, "", "7440-006-02-24-0080", 2565, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [50, 49, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0058", 2569, "", "7440-006-02-24-0096", 2563, "ปกติ", "", "ซื้องบเหลือจ่าย งบ69 แล้ว", "", "ปกติ"],
+  [51, 50, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0036", 2565, "", "7440-006-02-24-0118", 2567, "ปกติ", "", "", "", "ปกติ"],
+  [52, 51, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0039", 2565, "", "", "", "", "", "", "", "ปกติ"],
+  [53, 52, "NB", "", "กลุ่มติดตามและประเมินผล", "7440-001-03-24-0057", 2569, "", "7440-006-02-24-0101", 2556, "ปกติ", "", "ซื้อทดแทน งบปี 69 แล้ว", "", "ปกติ"],
+  [54, 53, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0099", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", "", "ปกติ"],
+  [55, 54, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0100", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", "", "ปกติ"],
+  [56, 55, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0101", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", "", "ปกติ"],
+  [57, 56, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0102", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", "", "ปกติ"],
+  [58, 57, "PC (ห้องสมุด)", "ห้องสมุด", "กลุ่มวิชาการและวิเทศสัมพันธ์", "7440-001-01-24-0103", 2566, "", "", 2566, "ปกติ", "", "ห้องสมุด", "", "ปกติ"],
 ];
 function makeSnapshotAssets() {
   return SNAPSHOT_ROWS.map(
     ([row, id, type, owner, department, computerCode, computerYear, computerOutcome,
-      monitorCode, monitorYear, monitorCondition, monitorOutcome, notes, reason]) => ({
+      monitorCode, monitorYear, monitorCondition, monitorOutcome, notes, reason,
+      computerCondition]) => ({
       row, id, token: "sheet-" + row, type, owner, department, computerCode,
-      computerYear, computerOutcome, monitorCode, monitorYear, monitorCondition,
-      monitorOutcome, notes, reason, firewall: false,
+      computerYear, computerCondition, computerOutcome, monitorCode, monitorYear,
+      monitorCondition, monitorOutcome, notes, reason, firewall: false,
     }),
   );
 }
@@ -1999,7 +2030,10 @@ const state = {
   token: "",
   user: { role: "viewer", department: "*" },
   sheetUrl: live ? "" : SHEET_URL,
-  loading: false,
+  computerConditions: COMPUTER_CONDITIONS,
+  monitorConditions: CONDITIONS.filter(Boolean),
+  loading: live,
+  error: "",
 };
 const labels = {
   overview: "ภาพรวม",
@@ -2079,7 +2113,12 @@ const STATUS_FILTERS = {
   "old-computers": {
     label: "คอมอายุเกิน 5 ปี (รอพิจารณา)",
     scope: "computers",
-    test: (a) => computerStatus(a, state.year) === "เข้าเกณฑ์อายุ",
+    test: (a) => computerOld(a, state.year),
+  },
+  "broken-computers": {
+    label: "คอมชำรุด",
+    scope: "computers",
+    test: computerBroken,
   },
   "new-computers": {
     label: "คอมอายุไม่เกิน 5 ปี",
@@ -2132,7 +2171,9 @@ function render() {
     : `<span><strong>ข้อมูลจริงจากชีต 2569+จอ ณ ${SNAPSHOT_LABEL}</strong> · หน้านี้ดูอย่างเดียว ชื่อผู้รับผิดชอบดูได้ในชีต · แก้ไขข้อมูลที่ Google Sheet</span><button id="open-live-sheet">เปิดชีต</button>`;
   $("page").innerHTML = state.loading
     ? '<div class="loading"><span class="spinner"></span><p>กำลังอ่านทะเบียนครุภัณฑ์…</p></div>'
-    : {
+    : state.error
+      ? `<div class="load-error"><h2>โหลดข้อมูลจากชีตไม่สำเร็จ</h2><p>${esc(state.error)}</p><button class="btn primary" id="retry-load">${icon("refresh")}ลองอีกครั้ง</button></div>`
+      : {
         overview: renderOverview,
         inventory: renderInventory,
         departments: renderDepartments,
@@ -2174,11 +2215,11 @@ function renderOverview() {
     ) +
     `<div class="stats">${stat("คอมพิวเตอร์ทั้งหมด", s.computers, "เครื่อง", "PC + NB ในทะเบียน", "featured", "layers")}${stat("PC ตั้งโต๊ะ", s.pc, "เครื่อง", "รวม PC ห้องสมุดแล้ว", "pc", "monitor")}${stat("โน้ตบุ๊ก NB", s.nb, "เครื่อง", "จอแยกนับต่างหาก", "nb", "laptop")}${stat("จอแยก", s.monitors, "จอ", "นับเฉพาะรหัส 7440-006-…", "mon", "monitor")}</div>
 <h2 class="section-title">${icon("alert")}สิ่งที่ต้องดำเนินการ</h2>
-<div class="alert-grid">${alertTile("warn", s.pendingComputers, "คอมอายุเกิน 5 ปี", "เข้าเกณฑ์พิจารณาทดแทน · ตรวจสภาพก่อนขอซื้อ", 'data-attention="old-computers"', "ดูรายการ")}${alertTile("bad", s.brokenMonitors, "จอชำรุด", "จอที่เจ้าหน้าที่ระบุว่าชำรุด และยังไม่บันทึกผล", 'data-attention="broken-monitors"', "ดูรายการ")}${alertTile("info", s.issues, "ข้อมูลยังไม่ครบ", "รหัสจอ ปีซื้อ หรือข้อมูลที่ควรยืนยัน", 'data-action="quality"', "ไปตรวจข้อมูล")}</div>
+<div class="alert-grid">${alertTile("warn", s.pendingComputers, "คอมอายุเกิน 5 ปี", "เข้าเกณฑ์พิจารณาทดแทน · ยังไม่บันทึกผล", 'data-attention="old-computers"', "ดูรายการ")}${alertTile("bad", s.brokenComputers, "คอมชำรุด", "สถานะ pc/nb = ชำรุด และยังไม่บันทึกผลทดแทน", 'data-attention="broken-computers"', "ดูรายการ")}${alertTile("bad", s.brokenMonitors, "จอชำรุด", "สถานะจอ = ชำรุด และยังไม่บันทึกผลทดแทน", 'data-attention="broken-monitors"', "ดูรายการ")}${alertTile("info", s.issues, "ข้อมูลยังไม่ครบ", "รหัสจอ ปีซื้อ หรือข้อมูลที่ควรยืนยัน", 'data-action="quality"', "ไปตรวจข้อมูล")}</div>
 <div class="policy-note"><strong>จออายุเกิน 5 ปี ${s.oldMonitors} จอ</strong> — เข้าเกณฑ์อายุ แต่ถ้ายังใช้งานได้ <strong>ไม่จำเป็นต้องซื้อใหม่</strong></div>
 <h2 class="section-title">${icon("building")}จำนวนเครื่องแต่ละกลุ่ม / ฝ่าย</h2>
 <section class="panel"><div class="legend"><span><i class="swatch"></i>PC</span><span><i class="swatch nb"></i>NB</span><span><i class="swatch mon"></i>จอแยก (ตัวเลขใต้ยอดรวม)</span></div><div class="department-chart">${groups.map((g) => `<div class="dept-bar"><span class="dept-bar-label">${esc(g.name)}</span><div class="bar-track" role="img" aria-label="PC ${g.s.pc}, NB ${g.s.nb}"><span style="width:${(g.s.pc / max) * 100}%">${g.s.pc}</span><span class="nb" style="width:${(g.s.nb / max) * 100}%">${g.s.nb}</span></div><div class="dept-total"><strong>${g.s.computers}</strong><small>จอ ${g.s.monitors}</small></div></div>`).join("")}</div><div class="chart-foot"><button class="link-btn" data-action="departments">ดูรายละเอียดแต่ละฝ่าย${icon("chevron")}</button></div></section>
-<section class="panel recent-panel"><div class="panel-head"><div><h2>คอมที่อายุเกิน 5 ปี</h2><p class="panel-subtitle">พิจารณาสภาพและความจำเป็นเป็นรายเครื่อง</p></div><button class="link-btn" data-attention="old-computers">ดูทั้งหมด${icon("chevron")}</button></div>${assetTable(state.assets.filter((a) => computerStatus(a, state.year) === "เข้าเกณฑ์อายุ").slice(0, 5), false)}</section>`
+<section class="panel recent-panel"><div class="panel-head"><div><h2>คอมที่อายุเกิน 5 ปี</h2><p class="panel-subtitle">พิจารณาสภาพและความจำเป็นเป็นรายเครื่อง</p></div><button class="link-btn" data-attention="old-computers">ดูทั้งหมด${icon("chevron")}</button></div>${assetTable(state.assets.filter((a) => computerOld(a, state.year)).slice(0, 5), false)}</section>`
   );
 }
 function rowTone(a, mon) {
@@ -2243,7 +2284,7 @@ function renderDepartments() {
           state.assets.filter((a) => a.department === name),
           state.year,
         );
-        return `<section class="panel department-card"><div class="card-title"><span class="stat-icon">${icon("building")}</span><h2>${esc(name)}</h2></div><div class="numbers"><div><strong>${s.pc}</strong><span>PC</span></div><div><strong>${s.nb}</strong><span>NB</span></div><div><strong>${s.monitors}</strong><span>จอแยก</span></div></div><div class="card-flags">${badge(`คอมเกิน 5 ปี ${s.oldComputers} เครื่อง`, s.oldComputers ? "warn" : "good")}${badge(`จอเกิน 5 ปี ${s.oldMonitors} จอ`, s.oldMonitors ? "warn" : "good")}${badge(`จอชำรุด ${s.brokenMonitors}`, s.brokenMonitors ? "bad" : "good")}</div><div class="card-bottom"><button class="btn" data-department="${esc(name)}">เปิดทะเบียนฝ่ายนี้${icon("chevron")}</button></div></section>`;
+        return `<section class="panel department-card"><div class="card-title"><span class="stat-icon">${icon("building")}</span><h2>${esc(name)}</h2></div><div class="numbers"><div><strong>${s.pc}</strong><span>PC</span></div><div><strong>${s.nb}</strong><span>NB</span></div><div><strong>${s.monitors}</strong><span>จอแยก</span></div></div><div class="card-flags">${badge(`คอมเกิน 5 ปี ${s.oldComputers} เครื่อง`, s.oldComputers ? "warn" : "good")}${badge(`จอเกิน 5 ปี ${s.oldMonitors} จอ`, s.oldMonitors ? "warn" : "good")}${badge(`คอมชำรุด ${s.brokenComputers}`, s.brokenComputers ? "bad" : "good")}${badge(`จอชำรุด ${s.brokenMonitors}`, s.brokenMonitors ? "bad" : "good")}</div><div class="card-bottom"><button class="btn" data-department="${esc(name)}">เปิดทะเบียนฝ่ายนี้${icon("chevron")}</button></div></section>`;
       })
       .join("")}</div>`
   );
@@ -2316,6 +2357,9 @@ function go(view) {
 function field(label, name, value, type = "text", wide = false) {
   return `<label class="${wide ? "wide" : ""}">${label}<input name="${name}" value="${esc(value)}" type="${type}" ${["owner", "computerCode"].includes(name) ? 'maxlength="180"' : ""} ${type === "number" ? `min="2400" max="${currentYear()}" step="1"` : ""} ${name === "owner" ? "required" : ""}></label>`;
 }
+// Keep a value already in the sheet selectable even if the dropdown list changed.
+const withCurrent = (list, value) =>
+  value && !list.includes(String(value)) ? [...list, String(value)] : list;
 function selectField(label, name, list, value, empty = "ยังไม่ระบุ") {
   return `<label>${label}<select name="${name}">${options(list.filter(Boolean), value, empty)}</select></label>`;
 }
@@ -2332,6 +2376,7 @@ function openAsset(row) {
       monitorYear: "",
       monitorCondition: "",
       computerOutcome: "",
+      computerCondition: "",
       monitorOutcome: "",
       notes: "",
       reason: "",
@@ -2347,7 +2392,7 @@ function openAsset(row) {
       ? DEPARTMENTS
       : [state.user.department];
   $("asset-content").innerHTML =
-    `<form id="asset-form"><fieldset ${!canEdit() ? "disabled" : ""} style="border:0;margin:0;padding:0"><div class="form-body"><div class="form-grid" style="margin-bottom:20px">${field("ผู้รับผิดชอบ", "owner", existing ? a.owner || (live ? "" : "(ดูชื่อในชีต)") : "")}${selectField("กลุ่ม / ฝ่าย", "department", departments, a.department, "เลือกกลุ่ม / ฝ่าย")}</div><div class="form-section"><h3>${icon("laptop")}คอมพิวเตอร์ PC / NB</h3><div class="form-grid">${selectField("ประเภท", "type", ["PC", "NB", "PC (ห้องสมุด)"], a.type, "เลือกประเภท")}${field("เลขครุภัณฑ์คอมพิวเตอร์", "computerCode", a.computerCode)}${field("ปีซื้อคอม (พ.ศ.)", "computerYear", a.computerYear, "number")}${selectField("ผลทดแทนเฉพาะคอม", "computerOutcome", OUTCOMES, a.computerOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุคอม ${age(a.computerYear, state.year) ?? "—"} ปี · ไม่เกิน 5 ปี = ปกติ / เกิน 5 ปี = เข้าเกณฑ์อายุพิจารณาทดแทน</p></div><div class="form-section mon"><h3>${icon("monitor")}จอแยก</h3><div class="form-grid">${field("เลขครุภัณฑ์จอ", "monitorCode", a.monitorCode)}${field("ปีซื้อจอ (พ.ศ.)", "monitorYear", a.monitorYear, "number")}${selectField("สถานะการใช้งานจอ", "monitorCondition", CONDITIONS, a.monitorCondition)}${selectField("ผลทดแทนเฉพาะจอ", "monitorOutcome", OUTCOMES, a.monitorOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุจอ ${age(a.monitorYear, state.year) ?? "—"} ปี · คำนวณจากปีซื้อจอ แม้ยังไม่มีรหัส · จอที่ยังใช้งานได้ไม่จำเป็นต้องซื้อใหม่เพียงเพราะอายุเกิน 5 ปี</p></div><div class="form-grid"><label class="wide">หมายเหตุ<textarea name="notes" maxlength="3000" placeholder="บันทึกเพิ่มเติมได้ตามต้องการ">${esc(a.notes)}</textarea></label><label class="wide">เหตุผลความจำเป็นในการขอซื้อ<textarea name="reason" maxlength="3000" placeholder="ระบุอุปกรณ์ที่ขอทดแทน สภาพปัญหา และผลต่อการปฏิบัติงาน">${esc(a.reason)}</textarea></label></div><p class="form-error" id="save-error" role="alert"></p></div></fieldset><div class="form-actions"><small>${canEdit() ? "บันทึกลงชีตหลักและอัปเดตชีตแยกฝ่าย" : live ? "สิทธิ์นี้ดูข้อมูลได้อย่างเดียว" : "ดูอย่างเดียว · แก้ไขข้อมูลที่ Google Sheet"}</small><div class="right"><button type="button" class="btn" data-close="asset-dialog">ปิด</button>${canEdit() ? '<button type="submit" class="btn primary">บันทึกข้อมูล</button>' : ""}</div></div></form>`;
+    `<form id="asset-form"><fieldset ${!canEdit() ? "disabled" : ""} style="border:0;margin:0;padding:0"><div class="form-body"><div class="form-grid" style="margin-bottom:20px">${field("ผู้รับผิดชอบ", "owner", existing ? a.owner || (live ? "" : "(ดูชื่อในชีต)") : "")}${selectField("กลุ่ม / ฝ่าย", "department", departments, a.department, "เลือกกลุ่ม / ฝ่าย")}</div><div class="form-section"><h3>${icon("laptop")}คอมพิวเตอร์ PC / NB</h3><div class="form-grid">${selectField("ประเภท", "type", withCurrent(["PC", "NB", "PC (ห้องสมุด)"], a.type), a.type, "เลือกประเภท")}${field("เลขครุภัณฑ์คอมพิวเตอร์", "computerCode", a.computerCode)}${field("ปีซื้อคอม (พ.ศ.)", "computerYear", a.computerYear, "number")}${selectField("สถานะ pc/nb", "computerCondition", withCurrent(state.computerConditions, a.computerCondition), a.computerCondition, "อัตโนมัติตามอายุ")}${selectField("ผลทดแทนเฉพาะคอม", "computerOutcome", OUTCOMES, a.computerOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุคอม ${age(a.computerYear, state.year) ?? "—"} ปี · ไม่เกิน 5 ปี = ปกติ / เกิน 5 ปี = เข้าเกณฑ์อายุพิจารณาทดแทน · สถานะ pc/nb เลือก "ชำรุด" ได้ทันที เลือก "อัตโนมัติตามอายุ" เพื่อกลับไปใช้สูตรเดิมของชีต</p></div><div class="form-section mon"><h3>${icon("monitor")}จอแยก</h3><div class="form-grid">${field("เลขครุภัณฑ์จอ", "monitorCode", a.monitorCode)}${field("ปีซื้อจอ (พ.ศ.)", "monitorYear", a.monitorYear, "number")}${selectField("สถานะจอ", "monitorCondition", withCurrent(state.monitorConditions, a.monitorCondition), a.monitorCondition)}${selectField("ผลทดแทนเฉพาะจอ", "monitorOutcome", OUTCOMES, a.monitorOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุจอ ${age(a.monitorYear, state.year) ?? "—"} ปี · คำนวณจากปีซื้อจอ แม้ยังไม่มีรหัส · จอที่ยังใช้งานได้ไม่จำเป็นต้องซื้อใหม่เพียงเพราะอายุเกิน 5 ปี</p></div><div class="form-grid"><label class="wide">หมายเหตุ<textarea name="notes" maxlength="3000" placeholder="บันทึกเพิ่มเติมได้ตามต้องการ">${esc(a.notes)}</textarea></label><label class="wide">เหตุผลความจำเป็นในการขอซื้อ<textarea name="reason" maxlength="3000" placeholder="ระบุอุปกรณ์ที่ขอทดแทน สภาพปัญหา และผลต่อการปฏิบัติงาน">${esc(a.reason)}</textarea></label></div><p class="form-error" id="save-error" role="alert"></p></div></fieldset><div class="form-actions"><small>${canEdit() ? "บันทึกลงชีตหลักและอัปเดตชีตแยกฝ่าย" : live ? "สิทธิ์นี้ดูข้อมูลได้อย่างเดียว" : "ดูอย่างเดียว · แก้ไขข้อมูลที่ Google Sheet"}</small><div class="right"><button type="button" class="btn" data-close="asset-dialog">ปิด</button>${canEdit() ? '<button type="submit" class="btn primary">บันทึกข้อมูล</button>' : ""}</div></div></form>`;
   $("asset-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget,
@@ -2372,12 +2417,15 @@ function openAsset(row) {
           token: existing?.token || null,
           values: draft,
         });
-        await refreshData();
-        if (result.warning) {
-          $("asset-dialog").close();
-          toast(result.warning);
-          return;
-        }
+        $("asset-dialog").close();
+        toast(
+          result.unchanged
+            ? "ไม่มีข้อมูลเปลี่ยนแปลง"
+            : result.warning || "บันทึกลงชีตแล้ว",
+        );
+        if (result.unchanged) return;
+        await refreshData().catch(() => {});
+        return;
       } else {
         const duplicate = state.assets.some(
           (x) =>
@@ -2416,6 +2464,7 @@ function exportData() {
     "เลขครุภัณฑ์คอม",
     "ปีซื้อคอม",
     "อายุคอม",
+    "สถานะ pc/nb",
     "ผลทดแทนคอม",
     "เลขครุภัณฑ์จอ",
     "ปีซื้อจอ",
@@ -2433,6 +2482,7 @@ function exportData() {
     a.computerCode,
     a.computerYear,
     age(a.computerYear, state.year),
+    a.computerCondition,
     a.computerOutcome,
     a.monitorCode,
     a.monitorYear,
@@ -2472,10 +2522,13 @@ async function refreshData() {
   render();
   try {
     const data = await rpc("getInventory", state.token);
+    state.error = "";
     state.assets = data.assets;
     state.user = data.user;
     state.year = data.year;
     state.sheetUrl = data.sheetUrl;
+    if (data.computerConditions) state.computerConditions = data.computerConditions;
+    if (data.monitorConditions) state.monitorConditions = data.monitorConditions;
     $("sync-label").textContent =
       "อัปเดต " +
       new Intl.DateTimeFormat("th-TH", {
@@ -2484,12 +2537,13 @@ async function refreshData() {
         minute: "2-digit",
       }).format(new Date());
   } catch (error) {
-    toast(error.message);
-    if (/เข้าใช้งาน|หมดอายุ/.test(error.message)) {
+    if (/เข้าใช้งาน|หมดอายุ/.test(error.message) && !state.user.open) {
+      toast(error.message);
       state.token = "";
       state.assets = [];
       if (!$("login-dialog").open) $("login-dialog").showModal();
-    }
+    } else if (!state.assets.length) state.error = error.message;
+    else toast("โหลดข้อมูลใหม่ไม่สำเร็จ: " + error.message);
     throw error;
   } finally {
     state.loading = false;
@@ -2569,12 +2623,11 @@ document.addEventListener("click", (event) => {
     render();
   }
   if (b.id === "source-button") showSource();
-  if (
-    (b.id === "sheet-link" || b.id === "open-live-sheet") &&
-    state.sheetUrl
-  )
-    window.open(state.sheetUrl, "_blank", "noopener");
-  if (b.id === "refresh") refreshData().catch(() => {});
+  if (b.id === "sheet-link" || b.id === "open-live-sheet") {
+    if (state.sheetUrl) window.open(state.sheetUrl, "_blank", "noopener");
+    else toast("ยังไม่ได้ลิงก์ชีต กรุณารอโหลดข้อมูลหรือกดรีเฟรช");
+  }
+  if (b.id === "refresh" || b.id === "retry-load") refreshData().catch(() => {});
   if (b.id === "menu-toggle") {
     const open = $("sidebar").classList.toggle("open");
     b.setAttribute("aria-expanded", String(open));
@@ -2613,13 +2666,24 @@ render();
 if (live)
   rpc("openSession")
     .then((result) => {
-      if (!result) return $("login-dialog").showModal();
+      if (!result) {
+        state.loading = false;
+        render();
+        $("login-dialog").showModal();
+        return;
+      }
       state.token = result.token;
       state.user = result.user;
-      return refreshData();
+      return refreshData().catch(() => {});
     })
-    .catch(() => {
-      if (!$("login-dialog").open) $("login-dialog").showModal();
+    .catch((error) => {
+      // e.g. an older รหัส.gs without openSession: fall back to the access-code form
+      state.loading = false;
+      render();
+      $("login-error").textContent = /is not a function/.test(error.message)
+        ? "รหัส.gs ใน Apps Script ยังเป็นเวอร์ชันเก่า กรุณาอัปเดตแล้ว deploy ใหม่"
+        : error.message;
+      $("login-dialog").showModal();
     });
 </script>
   </body>
