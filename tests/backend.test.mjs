@@ -19,7 +19,7 @@ function setup() {
     "สถานะ pc/nb",
     "ผลดำเนินการทดแทน",
     "จอ",
-    "ปีที่จัดซื้อจอ",
+    "ปีที่จัดซื้อจอ (ถ้ามี)",
     "อายุจอ",
     "สถานะจอ",
     "ผลดำเนินการทดแทนจอ",
@@ -64,10 +64,17 @@ function setup() {
   ];
   const formulas = new Map([["2,16", "=ARRAYFORMULA(...)"]]);
   const log = [];
+  const logHeaders = ["วันที่/เวลา", "การกระทำ", "ผู้แก้ไข", "AMS", "รายละเอียด"];
   const book = {
     getUrl: () => "https://docs.google.com/spreadsheets/d/test",
     getSheetByName: (n) =>
-      n === "Log" ? { appendRow: (v) => log.push(v) } : sheet,
+      n === "Log"
+        ? {
+            appendRow: (v) => log.push(v),
+            getLastColumn: () => logHeaders.length,
+            getRange: () => ({ getDisplayValues: () => [logHeaders] }),
+          }
+        : sheet,
   };
   const sheet = {
     getName: () => "2569+จอ",
@@ -124,7 +131,10 @@ function setup() {
         remove: (k) => cache.delete(k),
       }),
     },
-    Session: { getTemporaryActiveUserKey: () => "test-session" },
+    Session: {
+      getTemporaryActiveUserKey: () => "test-session",
+      getActiveUser: () => ({ getEmail: () => "" }),
+    },
     SpreadsheetApp: { openById: () => book, flush: () => {} },
     LockService: {
       getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }),
@@ -194,9 +204,15 @@ test("saving monitor condition keeps computer outcome, notes, audit, and checkbo
   assert.equal(rows[1][17], "ส่งแล้ว");
   assert.equal(formulas.get("2,16"), "=ARRAYFORMULA(...)");
   assert.equal(log.length, 1);
+  assert.equal(log[0].length, 5);
+  assert.equal(log[0][1], "แก้ไขรายการ");
+  assert.equal(log[0][3], "TEST-1");
+  assert.match(log[0][4], /"sheet":"2569\+จอ"/);
   assert.ok(formulas.get("2,12").includes("VALUE(K2)"));
   assert.ok(formulas.get("2,7").includes("VALUE(F2)"));
-  assert.ok(formulas.get("2,8").includes('I2="ทดแทนแล้ว"'));
+  // สถานะ pc/nb is the staff's dropdown: an unchanged value is never rewritten.
+  assert.equal(formulas.get("2,8"), undefined);
+  assert.equal(rows[1][7], "รอดำเนินการ");
   assert.throws(
     () => ctx.saveAsset(admin, { row: a.row, token: a.token, values: a }),
     /ถูกแก้ไขแล้ว/,
@@ -220,8 +236,22 @@ test("duplicates, invalid years, stale rows and formula edits are rejected befor
   );
   formulas.set("2,13", "=L2>5");
   assert.throws(
-    () => ctx.saveAsset(admin, { row: a.row, token: a.token, values: a }),
+    () =>
+      ctx.saveAsset(admin, {
+        row: a.row,
+        token: a.token,
+        values: { ...a, monitorCondition: "ชำรุด" },
+      }),
     /ยังเป็นสูตร/,
+  );
+  assert.throws(
+    () =>
+      ctx.saveAsset(admin, {
+        row: a.row,
+        token: a.token,
+        values: { ...a, computerCondition: "พัง" },
+      }),
+    /สถานะ pc\/nb ต้องเป็น/,
   );
   assert.equal(JSON.stringify(rows), before);
 });
@@ -245,4 +275,37 @@ test("new records reuse prepared empty rows and protect formula-like input", () 
   assert.equal(rows[3][2], "'=1+1");
   assert.equal(rows[3][14], "'@formula");
   assert.equal(rows[3][21], "ขอเพิ่มเครื่อง");
+});
+
+test("OPEN_ACCESS lets anyone with the link read and edit without a code", () => {
+  const { ctx, rows, properties } = setup();
+  assert.equal(ctx.openSession(), null);
+  assert.throws(() => ctx.getInventory("open"), /เข้าใช้งาน/);
+  properties.set("OPEN_ACCESS", "true");
+  const s = ctx.openSession();
+  assert.equal(s.user.role, "admin");
+  const a = ctx.getInventory(s.token).assets[1];
+  assert.equal(ctx.getInventory(s.token).assets.length, 2);
+  ctx.saveAsset(s.token, { row: a.row, token: a.token, values: { ...a, notes: "แก้จากแอป" } });
+  assert.equal(rows[2][14], "แก้จากแอป");
+});
+
+test("สถานะ pc/nb: choosing ชำรุด replaces the row's formula; clearing restores it", () => {
+  const { ctx, rows, admin, formulas } = setup();
+  formulas.set("2,8", "=IF(B2=...)");
+  let a = ctx.getInventory(admin).assets[0];
+  assert.equal(a.computerCondition, "รอดำเนินการ");
+  ctx.saveAsset(admin, {
+    row: a.row,
+    token: a.token,
+    values: { ...a, computerCondition: "ชำรุด" },
+  });
+  assert.equal(rows[1][7], "ชำรุด");
+  a = ctx.getInventory(admin).assets[0];
+  ctx.saveAsset(admin, {
+    row: a.row,
+    token: a.token,
+    values: { ...a, computerCondition: "" },
+  });
+  assert.ok(formulas.get("2,8").includes('I2="ทดแทนแล้ว"'));
 });

@@ -1,5 +1,5 @@
 /** DPTC Inventory — Google Sheet is the only source of truth.
- * Configure SPREADSHEET_ID and ACCESS_RULES in Script Properties.
+ * Configure SPREADSHEET_ID, then ACCESS_RULES (access codes) or OPEN_ACCESS=true, in Script Properties.
  * Never put real access codes or personal inventory data in this repository.
  */
 const DPTC_DEPARTMENTS = [
@@ -16,7 +16,8 @@ const DPTC_HEADERS = {
   computerCode: ["AMS", "เลขครุภัณฑ์ PC/NB"],
   computerYear: ["ปีที่จัดซื้อ", "ปีที่จัดซื้อ (PC/NB)", "ปีซื้อ PC/NB"],
   computerAge: ["อายุ PC/NB"],
-  computerStatus: ["สถานะ pc/nb", "สถานะ PC/NB", "สถานะทดแทนคอม", "สถานะทดแทน"],
+  // สภาพคอม: ดรอปดาวที่เจ้าหน้าที่เลือก เช่น ปกติ / รอดำเนินการ / ชำรุด
+  computerCondition: ["สถานะ pc/nb", "สถานะ PC/NB", "สถานะทดแทนคอม", "สถานะทดแทน"],
   computerOutcome: ["ผลดำเนินการทดแทน", "ผลดำเนินการทดแทนคอม", "ผลทดแทนคอม"],
   monitorCode: ["จอ", "เลขครุภัณฑ์จอ"],
   monitorYear: ["ปีที่จัดซื้อจอ"],
@@ -43,6 +44,52 @@ const DPTC_EDITABLE = [
   "notes",
   "reason",
 ];
+const DPTC_TYPES = ["PC", "NB", "PC (ห้องสมุด)"];
+const DPTC_COMPUTER_CONDITIONS = ["ปกติ", "รอดำเนินการ", "ชำรุด", "อยู่ระหว่างซ่อม"];
+const DPTC_MONITOR_CONDITIONS = ["ปกติ", "ชำรุด", "อยู่ระหว่างซ่อม"];
+/** Allowed values of a column's dropdown (data validation on the given row), or null. */
+function dropdown_(s, row, col) {
+  try {
+    const rule = s.getRange(row, col + 1).getDataValidation();
+    if (!rule) return null;
+    const type = rule.getCriteriaType(),
+      values = rule.getCriteriaValues();
+    const inList =
+      (typeof SpreadsheetApp !== "undefined" &&
+        SpreadsheetApp.DataValidationCriteria &&
+        type === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) ||
+      String(type) === "VALUE_IN_LIST";
+    if (!inList || !Array.isArray(values[0])) return null; // e.g. a dropdown from a range: use the fallback list
+    const list = values[0].map(text_).filter(Boolean);
+    return list.length ? list : null;
+  } catch (e) {
+    return null;
+  }
+}
+const DPTC_LOG_HEADERS = [
+  ["วันที่/เวลา", "เวลา"],
+  ["การกระทำ"],
+  ["ผู้แก้ไข", "กลุ่ม/ฝ่ายผู้แก้ไข"],
+  ["AMS", "เลขครุภัณฑ์"],
+  ["รายละเอียด"],
+];
+const DPTC_LOG_KEYS = ["time", "action", "editor", "code", "details"];
+/** Place each value under the Log sheet's own header so an existing Log keeps its columns. */
+function logRow_(log, values) {
+  const width = log.getLastColumn ? log.getLastColumn() : 0,
+    headers = width
+      ? log.getRange(1, 1, 1, width).getDisplayValues()[0]
+      : [],
+    row = headers.map(() => ""),
+    placed = DPTC_LOG_HEADERS.map((aliases, i) => {
+      const col = matchHeader_(headers, aliases)[0];
+      if (col != null) row[col] = values[DPTC_LOG_KEYS[i]];
+      return col != null;
+    });
+  return placed.some(Boolean)
+    ? row
+    : DPTC_LOG_KEYS.map((k) => values[k]);
+}
 function doGet() {
   return HtmlService.createHtmlOutputFromFile("Index")
     .setTitle("DPTC | ทะเบียนครุภัณฑ์")
@@ -71,6 +118,29 @@ function sheet_() {
   if (!s) throw new Error("ไม่พบชีต " + c.sheet);
   return s;
 }
+function normHeader_(h) {
+  return text_(h).replace(/\s+/g, " ").toLowerCase();
+}
+/** Columns matching any alias. Exact names win; otherwise accept a header that
+ * starts with the alias followed by a space, bracket or punctuation, e.g.
+ * "ปีที่จัดซื้อจอ (ถ้ามี)". "ผลดำเนินการทดแทนจอ" never matches "ผลดำเนินการทดแทน". */
+function matchHeader_(headers, aliases) {
+  const names = headers.map(normHeader_),
+    keys = aliases.map(normHeader_),
+    exact = [],
+    prefix = [];
+  names.forEach((h, i) => {
+    if (!h) return;
+    if (keys.indexOf(h) >= 0) exact.push(i);
+    else if (
+      keys.some(
+        (a) => h.indexOf(a) === 0 && /^[\s(\[:*\/\-–—.,]/.test(h.slice(a.length)),
+      )
+    )
+      prefix.push(i);
+  });
+  return exact.length ? exact : prefix;
+}
 function schema_(s) {
   const headers = s
       .getRange(1, 1, 1, s.getLastColumn())
@@ -83,9 +153,7 @@ function schema_(s) {
   });
   const map = {};
   Object.keys(DPTC_HEADERS).forEach((k) => {
-    const found = DPTC_HEADERS[k]
-      .map((h) => headers.indexOf(h))
-      .filter((i) => i >= 0);
+    const found = matchHeader_(headers, DPTC_HEADERS[k]);
     if (found.length > 1)
       throw new Error("หัวคอลัมน์ซ้ำความหมาย: " + DPTC_HEADERS[k].join(" / "));
     map[k] = found.length ? found[0] : -1;
@@ -98,7 +166,7 @@ function schema_(s) {
     "computerCode",
     "computerYear",
     "computerAge",
-    "computerStatus",
+    "computerCondition",
     "computerOutcome",
     "monitorCode",
     "monitorYear",
@@ -157,7 +225,32 @@ function login(code) {
   cache.put("dptc-session-" + sha_(token), JSON.stringify(user), 14400);
   return { token, user };
 }
+/** Script Property OPEN_ACCESS = "true": no access code; anyone with the /exec link can view and edit all departments. */
+function openAccess_() {
+  return (
+    text_(
+      PropertiesService.getScriptProperties().getProperty("OPEN_ACCESS"),
+    ).toLowerCase() === "true"
+  );
+}
+function openUser_() {
+  let email = "";
+  try {
+    email = Session.getActiveUser().getEmail();
+  } catch (e) {}
+  return {
+    role: "admin",
+    department: "*",
+    label: email || "ผู้ใช้แอป (ไม่ใช้รหัส)",
+    open: true,
+  };
+}
+/** Called by the page on load: returns a session when OPEN_ACCESS is on, otherwise null (show the login form). */
+function openSession() {
+  return openAccess_() ? { token: "open", user: openUser_() } : null;
+}
 function session_(token) {
+  if (openAccess_()) return openUser_();
   if (typeof token !== "string" || token.length > 200)
     throw new Error("กรุณาเข้าใช้งาน");
   const raw = CacheService.getScriptCache().get("dptc-session-" + sha_(token));
@@ -208,6 +301,10 @@ function getInventory(token) {
   return {
     assets,
     user,
+    computerConditions:
+      dropdown_(s, 2, schema.map.computerCondition) || DPTC_COMPUTER_CONDITIONS,
+    monitorConditions:
+      dropdown_(s, 2, schema.map.monitorCondition) || DPTC_MONITOR_CONDITIONS,
     year: year_(),
     sheetUrl: s.getParent().getUrl() + "#gid=" + s.getSheetId(),
   };
@@ -227,8 +324,11 @@ function validate_(input, user) {
     if (Object.prototype.hasOwnProperty.call(input, k))
       out[k] = text_(input[k]);
   });
-  if (!["PC", "NB", "PC (ห้องสมุด)"].includes(out.type))
-    throw new Error("เลือกประเภท PC / NB / PC (ห้องสมุด)");
+  if (Object.prototype.hasOwnProperty.call(input, "computerCondition"))
+    out.computerCondition = text_(input.computerCondition);
+  if ((out.computerCondition || "").length > 100)
+    throw new Error("สถานะ pc/nb ยาวเกินกำหนด");
+  if (!out.type || out.type.length > 100) throw new Error("เลือกประเภท");
   if (!out.owner || out.owner.length > 180)
     throw new Error("กรอกผู้รับผิดชอบ ไม่เกิน 180 ตัวอักษร");
   if (!DPTC_DEPARTMENTS.includes(out.department))
@@ -239,12 +339,8 @@ function validate_(input, user) {
     if (!["", "รอดำเนินการ", "ทดแทนแล้ว", "ไม่ทดแทน"].includes(out[k] || ""))
       throw new Error("ผลทดแทนไม่ถูกต้อง");
   });
-  if (
-    !["", "ปกติ", "ชำรุด", "อยู่ระหว่างซ่อม"].includes(
-      out.monitorCondition || "",
-    )
-  )
-    throw new Error("สถานะการใช้งานจอไม่ถูกต้อง");
+  if ((out.monitorCondition || "").length > 100)
+    throw new Error("สถานะจอยาวเกินกำหนด");
   out.computerYear = validateYear_(out.computerYear, "ปีซื้อคอม");
   out.monitorYear = validateYear_(out.monitorYear, "ปีซื้อจอ");
   ["computerCode", "monitorCode"].forEach((k) => {
@@ -288,24 +384,14 @@ function ageFormula_(row, yearCol, typeCol) {
     '))," ")'.replace('" ")', '"")')
   );
 }
+/** Automatic สถานะ pc/nb (the sheet's original formula), used when a manual status is cleared. */
 function computerFormula_(r, m) {
   const b = col_(m.type) + r,
     a = col_(m.computerAge) + r,
     o = col_(m.computerOutcome) + r;
   return (
-    "=IF(" +
-    b +
-    '="","",IF(OR(' +
-    o +
-    '="ทดแทนแล้ว",' +
-    o +
-    '="ไม่ทดแทน"),' +
-    o +
-    ",IF(" +
-    a +
-    '="","ตรวจสอบข้อมูล",IF(' +
-    a +
-    '<=5,"ปกติ","รอดำเนินการ"))))'
+    "=IF(" + b + '="","",IF(OR(' + o + '="ทดแทนแล้ว",' + o + '="ไม่ทดแทน"),' + o +
+    ",IF(" + a + '="","ตรวจสอบข้อมูล",IF(' + a + '<=5,"ปกติ","รอดำเนินการ"))))'
   );
 }
 function saveAsset(token, payload) {
@@ -348,10 +434,14 @@ function saveAsset(token, payload) {
           "แถวเตรียมไว้เต็ม กรุณาเพิ่มแถวและสูตรในชีตก่อนเพิ่มรายการ",
         );
     }
+    const types = dropdown_(s, r, map.type) || DPTC_TYPES;
+    if (types.indexOf(item.type) < 0 && item.type !== text_(old[map.type]))
+      throw new Error("ประเภทต้องเป็น: " + types.join(" / "));
     for (const key of ["computerCode", "monitorCode"]) {
       const value = item[key];
       if (
         value &&
+        value !== text_(old[map[key]]) &&
         rows.some(
           (row, i) =>
             i + 2 !== r &&
@@ -369,12 +459,34 @@ function saveAsset(token, payload) {
       .getRange(r, 1, 1, headers.length)
       .getFormulas()[0];
     for (const k of DPTC_EDITABLE) {
+      if (k === "monitorCondition") continue;
       if (existingFormulas[map[k]])
         throw new Error(
           "ช่อง " +
             headers[map[k]] +
             " ยังเป็นสูตร กรุณาปรับให้เป็นช่องกรอกก่อนบันทึก",
         );
+    }
+    // สถานะ pc/nb และสถานะจอ: write only when changed, and only values the dropdown allows.
+    const conditionWrites = [];
+    for (const [k, fallback, label] of [
+      ["computerCondition", DPTC_COMPUTER_CONDITIONS, "สถานะ pc/nb"],
+      ["monitorCondition", DPTC_MONITOR_CONDITIONS, "สถานะจอ"],
+    ]) {
+      if (!Object.prototype.hasOwnProperty.call(item, k)) continue;
+      const before = text_(old[map[k]]),
+        value = item[k] || "";
+      if (value === before) continue;
+      const allowed = dropdown_(s, r, map[k]) || fallback;
+      if (value && allowed.indexOf(value) < 0)
+        throw new Error(label + " ต้องเป็น: " + allowed.join(" / "));
+      // สถานะ pc/nb may still hold the auto-status formula: a chosen value replaces it
+      // in that row only (same as picking from the dropdown in the sheet).
+      if (k === "monitorCondition" && existingFormulas[map[k]])
+        throw new Error(
+          "ช่อง " + headers[map[k]] + " ยังเป็นสูตร กรุณาเปลี่ยนเป็นดรอปดาวก่อนบันทึก",
+        );
+      conditionWrites.push([k, value]);
     }
     if (payload.row == null) {
       const next =
@@ -383,19 +495,38 @@ function saveAsset(token, payload) {
       s.getRange(r, map.id + 1).setValue(next);
       changed = true;
     }
-    DPTC_EDITABLE.forEach((k) => {
-      if (Object.prototype.hasOwnProperty.call(item, k)) {
-        s.getRange(r, map[k] + 1).setValue(safe_(item[k]));
-        changed = true;
-      }
+    if (
+      payload.row == null &&
+      !existingFormulas[map.computerCondition] &&
+      !item.computerCondition
+    )
+      conditionWrites.push(["computerCondition", ""]);
+    conditionWrites.forEach(([k, value]) => {
+      const cell = s.getRange(r, map[k] + 1);
+      if (k === "computerCondition" && !value)
+        cell.setFormula(computerFormula_(r, map)); // "อัตโนมัติตามอายุ" → the sheet formula again
+      else cell.setValue(value);
+      changed = true;
     });
-    s.getRange(r, map.computerAge + 1).setFormula(
-      ageFormula_(r, map.computerYear, map.type),
+    // Write only cells whose value really changes (an untouched cell keeps its exact text).
+    const fieldWrites = DPTC_EDITABLE.filter(
+      (k) =>
+        k !== "monitorCondition" &&
+        Object.prototype.hasOwnProperty.call(item, k) &&
+        (payload.row == null || text_(item[k]) !== text_(old[map[k]])),
     );
-    s.getRange(r, map.monitorAge + 1).setFormula(
-      ageFormula_(r, map.monitorYear, map.type),
-    );
-    s.getRange(r, map.computerStatus + 1).setFormula(computerFormula_(r, map));
+    if (payload.row != null && !fieldWrites.length && !conditionWrites.length)
+      return { ok: true, row: r, unchanged: true, warning: "" };
+    fieldWrites.forEach((k) => {
+      s.getRange(r, map[k] + 1).setValue(safe_(item[k]));
+      changed = true;
+    });
+    [
+      [map.computerAge, ageFormula_(r, map.computerYear, map.type)],
+      [map.monitorAge, ageFormula_(r, map.monitorYear, map.type)],
+    ].forEach(([c, f]) => {
+      if (existingFormulas[c] !== f) s.getRange(r, c + 1).setFormula(f);
+    });
     if (map.editor >= 0)
       s.getRange(r, map.editor + 1).setValue(safe_(user.label));
     if (map.time >= 0) s.getRange(r, map.time + 1).setValue(new Date());
@@ -405,24 +536,28 @@ function saveAsset(token, payload) {
       let log = s.getParent().getSheetByName("Log");
       if (!log) {
         log = s.getParent().insertSheet("Log");
-        log.appendRow([
-          "วันที่/เวลา",
-          "การกระทำ",
-          "กลุ่ม/ฝ่ายผู้แก้ไข",
-          "รายละเอียด",
-        ]);
+        log.appendRow(DPTC_LOG_HEADERS.map((h) => h[0]));
       }
-      log.appendRow([
-        new Date(),
-        payload.row == null ? "เพิ่มรายการ" : "แก้ไขรายการ",
-        safe_(user.label),
-        JSON.stringify({
-          sheet: s.getName(),
-          row: r,
-          before: old,
-          after: item,
+      log.appendRow(
+        logRow_(log, {
+          time: new Date(),
+          action: payload.row == null ? "เพิ่มรายการ" : "แก้ไขรายการ",
+          editor: safe_(user.label),
+          code: safe_(item.computerCode || ""),
+          details: JSON.stringify({
+            sheet: s.getName(),
+            row: r,
+            // readable change list: column header → [before, after]
+            changes: fieldWrites
+              .concat(conditionWrites.map(([k]) => k))
+              .filter((k) => text_(old[map[k]]) !== text_(item[k]))
+              .reduce((acc, k) => {
+                acc[headers[map[k]]] = [text_(old[map[k]]), text_(item[k])];
+                return acc;
+              }, {}),
+          }),
         }),
-      ]);
+      );
     } catch (error) {
       warning = "บันทึกข้อมูลแล้ว แต่บันทึกประวัติไม่สำเร็จ กรุณาตรวจ Log";
     }

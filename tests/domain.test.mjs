@@ -110,9 +110,10 @@ test("monitor condition is independent from age and computer outcome", () => {
     }),
     false,
   );
+  // สถานะจอ = ชำรุด counts even before the monitor code is filled in.
   assert.equal(
     monitorNeedsAction({ ...a, monitorCode: "", monitorCondition: "ชำรุด" }),
-    false,
+    true,
   );
   assert.equal(age({ ...a, monitorCode: "" }.monitorYear, 2569), 10);
   assert.ok(
@@ -128,4 +129,38 @@ test("spreadsheet export and HTML do not execute user text", () => {
     escapeHtml('<img onerror="x">'),
     "&lt;img onerror=&quot;x&quot;&gt;",
   );
+});
+test("real sheet snapshot matches the sheet's own summary tab (2569)", async () => {
+  const { makeSnapshotAssets } = await import("../web/snapshot.js");
+  const real = makeSnapshotAssets(),
+    s = summarize(real, 2569);
+  assert.deepEqual(
+    [s.computers, s.pc, s.nb, s.monitors, s.oldComputers, s.oldMonitors],
+    [57, 28, 29, 30, 8, 8],
+  );
+  assert.deepEqual(
+    replacementPlan(real, 2570, 2575, 2569).map((r) => [r.pc, r.nb, r.monitors]),
+    [
+      [1, 0, 1],
+      [6, 6, 6],
+      [6, 14, 1],
+      [1, 0, 4],
+      [1, 0, 0],
+      [7, 7, 10],
+    ],
+  );
+  // Public snapshot must not carry personal names.
+  assert.ok(real.every((a) => !/^(นาย|นาง|น\.ส\.)/.test(a.owner)));
+});
+
+test("สถานะ pc/nb = ชำรุด marks a computer broken regardless of age", async () => {
+  const { computerBroken, computerOld } = await import("../web/domain.js");
+  const nb = { type: "NB", computerYear: 2569, computerCondition: "ชำรุด" };
+  assert.equal(computerStatus(nb, 2569), "ชำรุด");
+  assert.equal(computerBroken(nb), true);
+  assert.equal(computerBroken({ ...nb, computerOutcome: "ทดแทนแล้ว" }), false);
+  const old = { ...nb, computerYear: 2560 };
+  assert.equal(computerOld(old, 2569), true); // still listed as over 5 years
+  assert.equal(summarize([nb, old], 2569).brokenComputers, 2);
+  assert.equal(computerOld({ ...old, computerCondition: "ทดแทนแล้ว" }, 2569), false);
 });
