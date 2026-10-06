@@ -1,0 +1,8 @@
+.clasp.json
+.env*
+!.env.example
+node_modules/
+test-results/
+*.log
+dist/
+.vercel/
