@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
 const read = (p) => readFile(new URL("../" + p, import.meta.url), "utf8");
 const [html, css, domain, demo, app, fonts] = await Promise.all(
   [
@@ -25,4 +25,7 @@ const built = html
   );
 await writeFile(new URL("../index.html", import.meta.url), built);
 await writeFile(new URL("../apps-script/Index.html", import.meta.url), built);
-console.log("Built standalone preview and Apps Script Index.html");
+await mkdir(new URL("../dist/", import.meta.url), { recursive: true });
+await writeFile(new URL("../dist/index.html", import.meta.url), built);
+await copyFile(new URL("../FONT-LICENSE.txt", import.meta.url), new URL("../dist/FONT-LICENSE.txt", import.meta.url));
+console.log("Built standalone preview, Apps Script Index.html, and dist/");
