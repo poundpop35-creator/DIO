@@ -952,6 +952,12 @@ textarea:focus {
 select {
   max-width: 100%;
 }
+select.active-filter {
+  border-color: #f59e0b;
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-weight: 700;
+}
 textarea {
   min-height: 92px;
   resize: vertical;
@@ -2068,6 +2074,34 @@ function options(list, selected, emptyLabel) {
 function pageHead(title, sub, actions = "") {
   return `<div class="page-head"><div><div class="eyebrow">DPTC / ${state.year}</div><h1>${title}</h1><p>${sub}</p></div><div class="head-actions">${actions}</div></div>`;
 }
+// ตัวกรองสถานะ: label, ใช้กับแท็บคอมหรือจอ, เงื่อนไข
+const STATUS_FILTERS = {
+  "old-computers": {
+    label: "คอมอายุเกิน 5 ปี (รอพิจารณา)",
+    scope: "computers",
+    test: (a) => computerStatus(a, state.year) === "เข้าเกณฑ์อายุ",
+  },
+  "new-computers": {
+    label: "คอมอายุไม่เกิน 5 ปี",
+    scope: "computers",
+    test: (a) => (age(a.computerYear, state.year) ?? 99) <= 5,
+  },
+  "old-monitors": {
+    label: "จออายุเกิน 5 ปี",
+    scope: "monitors",
+    test: (a) => validMonitor(a) && (age(a.monitorYear, state.year) ?? -1) > 5,
+  },
+  "broken-monitors": {
+    label: "จอชำรุด",
+    scope: "monitors",
+    test: monitorNeedsAction,
+  },
+  issues: {
+    label: "ข้อมูลต้องตรวจสอบ",
+    scope: "computers",
+    test: (a) => issues(a, state.year).length > 0,
+  },
+};
 function filtered() {
   const q = state.query.trim().toLowerCase();
   return state.assets.filter(
@@ -2081,12 +2115,7 @@ function filtered() {
             .toLowerCase()
             .includes(q),
         )) &&
-      (!state.attention ||
-        (state.attention === "old-computers"
-          ? computerStatus(a, state.year) === "เข้าเกณฑ์อายุ"
-          : state.attention === "broken-monitors"
-            ? monitorNeedsAction(a)
-            : issues(a, state.year).length > 0)),
+      (!state.attention || STATUS_FILTERS[state.attention].test(a)),
   );
 }
 function render() {
@@ -2169,8 +2198,18 @@ function assetTable(rows, mon = false) {
     })
     .join("")}</tbody></table></div>`;
 }
-function filters() {
-  return `<div class="filter-bar"><div class="search">${icon("search")}<input id="search" type="search" placeholder="ค้นหาเลขครุภัณฑ์ เช่น 0106 หรือ 7440-006…" aria-label="ค้นหาครุภัณฑ์" value="${esc(state.query)}"></div><select id="department-filter" aria-label="กลุ่มฝ่าย">${options(DEPARTMENTS, state.department, "ทุกกลุ่ม / ฝ่าย")}</select><select id="type-filter" aria-label="ประเภทคอม">${options(["PC", "NB"], state.type, "ทุกประเภท")}</select></div>`;
+function filters(withStatus = false) {
+  const status = withStatus
+    ? `<select id="status-filter" aria-label="สถานะ / อายุ" class="${state.attention ? "active-filter" : ""}"><option value="">ทุกสถานะ / อายุ</option>${Object.entries(
+        STATUS_FILTERS,
+      )
+        .map(
+          ([k, f]) =>
+            `<option value="${k}" ${k === state.attention ? "selected" : ""}>${esc(f.label)}</option>`,
+        )
+        .join("")}</select>`
+    : "";
+  return `<div class="filter-bar"><div class="search">${icon("search")}<input id="search" type="search" placeholder="ค้นหาเลขครุภัณฑ์ ชื่อ หรือรหัสจอ…" aria-label="ค้นหาครุภัณฑ์" value="${esc(state.query)}"></div>${status}<select id="department-filter" aria-label="กลุ่มฝ่าย">${options(DEPARTMENTS, state.department, "ทุกกลุ่ม / ฝ่าย")}</select><select id="type-filter" aria-label="ประเภทคอม">${options(["PC", "NB"], state.type, "ทุกประเภท")}</select></div>`;
 }
 const colorLegend =
   '<div class="legend"><span><i class="swatch good"></i>ปกติ</span><span><i class="swatch warn"></i>ต้องพิจารณา / ตรวจข้อมูล</span><span><i class="swatch bad"></i>ชำรุด</span></div>';
@@ -2183,8 +2222,8 @@ function renderInventory() {
       "คอมและจออยู่ในรายการเดียวกัน แต่บันทึกผลทดแทนแยกกัน",
       `<button class="btn" data-action="export">${icon("download")}ส่งออก CSV</button>${canEdit() ? `<button class="btn primary" data-action="add">${icon("plus")}เพิ่มรายการ</button>` : ""}`,
     ) +
-    filters() +
-    `<section class="panel"><div class="panel-head"><div class="segmented" role="tablist"><button data-scope="computers" class="${state.scope === "computers" ? "active" : ""}">${icon("laptop")}คอมพิวเตอร์</button><button data-scope="monitors" class="mon ${state.scope === "monitors" ? "active" : ""}">${icon("monitor")}จอแยก</button></div><span class="count-pill">${rows.length} รายการ</span></div>${state.attention ? `<div class="filter-note"><span>กำลังกรอง: ${state.attention === "old-computers" ? "คอมอายุเกิน 5 ปี" : state.attention === "broken-monitors" ? "จอชำรุด" : "ข้อมูลต้องตรวจสอบ"}</span><button class="link-btn" data-action="clear-attention">ล้างตัวกรอง ✕</button></div>` : ""}${colorLegend}${assetTable(rows, state.scope === "monitors")}</section>`
+    filters(true) +
+    `<section class="panel"><div class="panel-head"><div class="segmented" role="tablist"><button data-scope="computers" class="${state.scope === "computers" ? "active" : ""}">${icon("laptop")}คอมพิวเตอร์</button><button data-scope="monitors" class="mon ${state.scope === "monitors" ? "active" : ""}">${icon("monitor")}จอแยก</button></div><span class="count-pill">${rows.length} รายการ</span></div>${state.attention ? `<div class="filter-note"><span>กำลังกรอง: ${esc(STATUS_FILTERS[state.attention].label)}</span><button class="link-btn" data-action="clear-attention">ล้างตัวกรอง ✕</button></div>` : ""}${colorLegend}${assetTable(rows, state.scope === "monitors")}</section>`
   );
 }
 function renderDepartments() {
@@ -2477,6 +2516,11 @@ document.addEventListener("change", (event) => {
     state.department = event.target.value;
     render();
   }
+  if (event.target.id === "status-filter") {
+    state.attention = event.target.value;
+    if (state.attention) state.scope = STATUS_FILTERS[state.attention].scope;
+    render();
+  }
   if (event.target.id === "type-filter") {
     state.type = event.target.value;
     render();
@@ -2506,8 +2550,7 @@ document.addEventListener("click", (event) => {
   if (b.dataset.attention) {
     go("inventory");
     state.attention = b.dataset.attention;
-    state.scope =
-      b.dataset.attention === "broken-monitors" ? "monitors" : "computers";
+    state.scope = STATUS_FILTERS[b.dataset.attention].scope;
     render();
     return;
   }

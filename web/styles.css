@@ -907,6 +907,12 @@ textarea:focus {
 select {
   max-width: 100%;
 }
+select.active-filter {
+  border-color: #f59e0b;
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-weight: 700;
+}
 textarea {
   min-height: 92px;
   resize: vertical;
