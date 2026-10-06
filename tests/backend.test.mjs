@@ -131,7 +131,10 @@ function setup() {
         remove: (k) => cache.delete(k),
       }),
     },
-    Session: { getTemporaryActiveUserKey: () => "test-session" },
+    Session: {
+      getTemporaryActiveUserKey: () => "test-session",
+      getActiveUser: () => ({ getEmail: () => "" }),
+    },
     SpreadsheetApp: { openById: () => book, flush: () => {} },
     LockService: {
       getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }),
@@ -256,4 +259,17 @@ test("new records reuse prepared empty rows and protect formula-like input", () 
   assert.equal(rows[3][2], "'=1+1");
   assert.equal(rows[3][14], "'@formula");
   assert.equal(rows[3][21], "ขอเพิ่มเครื่อง");
+});
+
+test("OPEN_ACCESS lets anyone with the link read and edit without a code", () => {
+  const { ctx, rows, properties } = setup();
+  assert.equal(ctx.openSession(), null);
+  assert.throws(() => ctx.getInventory("open"), /เข้าใช้งาน/);
+  properties.set("OPEN_ACCESS", "true");
+  const s = ctx.openSession();
+  assert.equal(s.user.role, "admin");
+  const a = ctx.getInventory(s.token).assets[1];
+  assert.equal(ctx.getInventory(s.token).assets.length, 2);
+  ctx.saveAsset(s.token, { row: a.row, token: a.token, values: { ...a, notes: "แก้จากแอป" } });
+  assert.equal(rows[2][14], "แก้จากแอป");
 });

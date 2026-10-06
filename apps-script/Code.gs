@@ -202,7 +202,32 @@ function login(code) {
   cache.put("dptc-session-" + sha_(token), JSON.stringify(user), 14400);
   return { token, user };
 }
+/** Script Property OPEN_ACCESS = "true": no access code; anyone with the /exec link can view and edit all departments. */
+function openAccess_() {
+  return (
+    text_(
+      PropertiesService.getScriptProperties().getProperty("OPEN_ACCESS"),
+    ).toLowerCase() === "true"
+  );
+}
+function openUser_() {
+  let email = "";
+  try {
+    email = Session.getActiveUser().getEmail();
+  } catch (e) {}
+  return {
+    role: "admin",
+    department: "*",
+    label: email || "ผู้ใช้แอป (ไม่ใช้รหัส)",
+    open: true,
+  };
+}
+/** Called by the page on load: returns a session when OPEN_ACCESS is on, otherwise null (show the login form). */
+function openSession() {
+  return openAccess_() ? { token: "open", user: openUser_() } : null;
+}
 function session_(token) {
+  if (openAccess_()) return openUser_();
   if (typeof token !== "string" || token.length > 200)
     throw new Error("กรุณาเข้าใช้งาน");
   const raw = CacheService.getScriptCache().get("dptc-session-" + sha_(token));

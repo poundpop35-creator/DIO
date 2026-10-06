@@ -2099,7 +2099,7 @@ function render() {
   $("year-label").textContent = `พ.ศ. ${state.year}`;
   $("quality-badge").textContent = summarize(state.assets, state.year).issues;
   $("mode-banner").innerHTML = live
-    ? `<span>ข้อมูลจากชีต 2569+จอ · ${esc(state.user.department === "*" ? "ทุกกลุ่ม / ฝ่าย" : state.user.department)}</span><button id="logout">ออกจากระบบ</button>`
+    ? `<span>ข้อมูลสดจากชีต 2569+จอ · ${esc(state.user.department === "*" ? "ทุกกลุ่ม / ฝ่าย" : state.user.department)}</span>${state.user.open ? '<button id="open-live-sheet">เปิดชีต</button>' : '<button id="logout">ออกจากระบบ</button>'}`
     : `<span><strong>ข้อมูลจริงจากชีต 2569+จอ ณ ${SNAPSHOT_LABEL}</strong> · หน้านี้ดูอย่างเดียว ชื่อผู้รับผิดชอบดูได้ในชีต · แก้ไขข้อมูลที่ Google Sheet</span><button id="open-live-sheet">เปิดชีต</button>`;
   $("page").innerHTML = state.loading
     ? '<div class="loading"><span class="spinner"></span><p>กำลังอ่านทะเบียนครุภัณฑ์…</p></div>'
@@ -2112,7 +2112,9 @@ function render() {
       }[state.view]();
   hydrateIcons();
   $("account-label").textContent = live
-    ? state.user.role === "admin"
+    ? state.user.open
+      ? "แก้ไขได้ทุกฝ่าย"
+      : state.user.role === "admin"
       ? "ผู้ดูแลระบบ"
       : state.user.role === "viewer"
         ? "ดูข้อมูล"
@@ -2565,7 +2567,17 @@ $("login-form").addEventListener("submit", async (e) => {
 });
 $("login-dialog").addEventListener("cancel", (event) => event.preventDefault());
 render();
-if (live) $("login-dialog").showModal();
+if (live)
+  rpc("openSession")
+    .then((result) => {
+      if (!result) return $("login-dialog").showModal();
+      state.token = result.token;
+      state.user = result.user;
+      return refreshData();
+    })
+    .catch(() => {
+      if (!$("login-dialog").open) $("login-dialog").showModal();
+    });
 </script>
   </body>
 </html>
