@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#2158d5" />
+    <title>DPTC • ครุภัณฑ์กองแผนงานและวิชาการ</title>
+    <meta
+      name="description"
+      content="ทะเบียนครุภัณฑ์คอมพิวเตอร์และจอ แยกกลุ่มฝ่าย พร้อมแผนตามอายุและผลดำเนินการทดแทน"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%232158d5'/%3E%3Cpath d='M9 10h22v16H9zM20 26v5m-6 0h12' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E"
+    />
+    
+    
+    <!-- STYLES -->
+  </head>
+  <body>
+    <a class="skip" href="#main">ข้ามไปเนื้อหา</a>
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview"
+        ><span class="brand-symbol" data-icon="monitor"></span
+        ><span>DPTC<small>ASSET MANAGEMENT</small></span></a
+      >
+      <div class="workspace-label">กองแผนงานและวิชาการ</div>
+      <nav aria-label="เมนูหลัก">
+        <button data-view="overview" class="nav-item active">
+          <i data-icon="grid"></i>ภาพรวม<span class="nav-dot"></span>
+        </button>
+        <button data-view="inventory" class="nav-item">
+          <i data-icon="layers"></i>ทะเบียนครุภัณฑ์
+        </button>
+        <button data-view="departments" class="nav-item">
+          <i data-icon="building"></i>กลุ่ม / ฝ่าย
+        </button>
+        <button data-view="plan" class="nav-item">
+          <i data-icon="calendar"></i>แผนตามอายุ
+        </button>
+        <button data-view="quality" class="nav-item">
+          <i data-icon="shield"></i>ตรวจสอบข้อมูล<span
+            id="quality-badge"
+            class="nav-count"
+            >—</span
+          >
+        </button>
+      </nav>
+      <div class="sidebar-policy">
+        <span class="policy-label">เกณฑ์อายุพิจารณาทดแทน</span>
+        <div>
+          <s>7</s><span>→</span><strong>5 <small>ปี</small></strong>
+        </div>
+        <p>จอที่ยังใช้งานได้<br />ไม่จำเป็นต้องซื้อใหม่</p>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="avatar">DP</div>
+        <div>ทะเบียนครุภัณฑ์<small id="account-label">โหมดตัวอย่าง</small></div>
+        <button
+          id="source-button"
+          class="icon-btn"
+          aria-label="ข้อมูลการเชื่อมต่อ"
+        >
+          <i data-icon="settings"></i>
+        </button>
+      </div>
+    </aside>
+    <div class="shell">
+      <header class="topbar">
+        <div class="crumb">
+          <button
+            class="icon-btn mobile-only"
+            id="menu-toggle"
+            aria-label="เปิดเมนู"
+            aria-expanded="false"
+          >
+            <i data-icon="menu"></i></button
+          ><span>ครุภัณฑ์</span><span class="slash">/</span
+          ><strong id="breadcrumb">ภาพรวม</strong>
+        </div>
+        <div class="top-actions">
+          <span class="year-pill" id="year-label"></span
+          ><button id="sheet-link" class="btn compact">
+            <i data-icon="external"></i><span>Google Sheet</span></button
+          ><button class="icon-btn" id="refresh" aria-label="รีเฟรชข้อมูล">
+            <i data-icon="refresh"></i>
+          </button>
+        </div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div id="mode-banner" class="mode-banner"></div>
+        <div id="page"></div>
+      </main>
+      <footer>
+        <span>DPTC · กองแผนงานและวิชาการ</span
+        ><span id="sync-label">ข้อมูลตัวอย่างสำหรับทดลองใช้งาน</span>
+      </footer>
+    </div>
+    <dialog id="asset-dialog" class="asset-dialog">
+      <div class="dialog-head">
+        <div>
+          <div class="eyebrow" id="asset-kicker">รายละเอียดครุภัณฑ์</div>
+          <h2 id="asset-title">รายการครุภัณฑ์</h2>
+        </div>
+        <button class="icon-btn" data-close="asset-dialog" aria-label="ปิด">
+          <i data-icon="close"></i>
+        </button>
+      </div>
+      <div id="asset-content"></div>
+    </dialog>
+    <dialog id="source-dialog" class="small-dialog">
+      <div class="dialog-head">
+        <h2>ข้อมูลและการเชื่อมต่อ</h2>
+        <button class="icon-btn" data-close="source-dialog" aria-label="ปิด">
+          <i data-icon="close"></i>
+        </button>
+      </div>
+      <div id="source-content"></div>
+    </dialog>
+    <dialog id="login-dialog" class="small-dialog">
+      <div class="dialog-head"><h2>เข้าใช้งานทะเบียน DPTC</h2></div>
+      <p>
+        ใช้รหัสเข้าใช้งานที่ผู้ดูแลระบบกำหนด
+        เพื่อดูข้อมูลและแก้ไขรายการตามสิทธิ์ของคุณ
+      </p>
+      <form id="login-form">
+        <label
+          >รหัสเข้าใช้งาน<input
+            name="accessCode"
+            type="password"
+            required
+            autocomplete="current-password"
+            minlength="8"
+        /></label>
+        <p id="login-error" class="form-error" role="alert"></p>
+        <button class="btn primary" type="submit">เข้าใช้งาน</button>
+      </form>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <!-- APP -->
+  </body>
+</html>
