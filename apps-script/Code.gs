@@ -43,6 +43,30 @@ const DPTC_EDITABLE = [
   "notes",
   "reason",
 ];
+const DPTC_LOG_HEADERS = [
+  ["วันที่/เวลา", "เวลา"],
+  ["การกระทำ"],
+  ["ผู้แก้ไข", "กลุ่ม/ฝ่ายผู้แก้ไข"],
+  ["AMS", "เลขครุภัณฑ์"],
+  ["รายละเอียด"],
+];
+const DPTC_LOG_KEYS = ["time", "action", "editor", "code", "details"];
+/** Place each value under the Log sheet's own header so an existing Log keeps its columns. */
+function logRow_(log, values) {
+  const width = log.getLastColumn ? log.getLastColumn() : 0,
+    headers = width
+      ? log.getRange(1, 1, 1, width).getDisplayValues()[0]
+      : [],
+    row = headers.map(() => ""),
+    placed = DPTC_LOG_HEADERS.map((aliases, i) => {
+      const col = matchHeader_(headers, aliases)[0];
+      if (col != null) row[col] = values[DPTC_LOG_KEYS[i]];
+      return col != null;
+    });
+  return placed.some(Boolean)
+    ? row
+    : DPTC_LOG_KEYS.map((k) => values[k]);
+}
 function doGet() {
   return HtmlService.createHtmlOutputFromFile("Index")
     .setTitle("DPTC | ทะเบียนครุภัณฑ์")
@@ -71,6 +95,29 @@ function sheet_() {
   if (!s) throw new Error("ไม่พบชีต " + c.sheet);
   return s;
 }
+function normHeader_(h) {
+  return text_(h).replace(/\s+/g, " ").toLowerCase();
+}
+/** Columns matching any alias. Exact names win; otherwise accept a header that
+ * starts with the alias followed by a space, bracket or punctuation, e.g.
+ * "ปีที่จัดซื้อจอ (ถ้ามี)". "ผลดำเนินการทดแทนจอ" never matches "ผลดำเนินการทดแทน". */
+function matchHeader_(headers, aliases) {
+  const names = headers.map(normHeader_),
+    keys = aliases.map(normHeader_),
+    exact = [],
+    prefix = [];
+  names.forEach((h, i) => {
+    if (!h) return;
+    if (keys.indexOf(h) >= 0) exact.push(i);
+    else if (
+      keys.some(
+        (a) => h.indexOf(a) === 0 && /^[\s(\[:*\/\-–—.,]/.test(h.slice(a.length)),
+      )
+    )
+      prefix.push(i);
+  });
+  return exact.length ? exact : prefix;
+}
 function schema_(s) {
   const headers = s
       .getRange(1, 1, 1, s.getLastColumn())
@@ -83,9 +130,7 @@ function schema_(s) {
   });
   const map = {};
   Object.keys(DPTC_HEADERS).forEach((k) => {
-    const found = DPTC_HEADERS[k]
-      .map((h) => headers.indexOf(h))
-      .filter((i) => i >= 0);
+    const found = matchHeader_(headers, DPTC_HEADERS[k]);
     if (found.length > 1)
       throw new Error("หัวคอลัมน์ซ้ำความหมาย: " + DPTC_HEADERS[k].join(" / "));
     map[k] = found.length ? found[0] : -1;
@@ -405,24 +450,22 @@ function saveAsset(token, payload) {
       let log = s.getParent().getSheetByName("Log");
       if (!log) {
         log = s.getParent().insertSheet("Log");
-        log.appendRow([
-          "วันที่/เวลา",
-          "การกระทำ",
-          "กลุ่ม/ฝ่ายผู้แก้ไข",
-          "รายละเอียด",
-        ]);
+        log.appendRow(DPTC_LOG_HEADERS.map((h) => h[0]));
       }
-      log.appendRow([
-        new Date(),
-        payload.row == null ? "เพิ่มรายการ" : "แก้ไขรายการ",
-        safe_(user.label),
-        JSON.stringify({
-          sheet: s.getName(),
-          row: r,
-          before: old,
-          after: item,
+      log.appendRow(
+        logRow_(log, {
+          time: new Date(),
+          action: payload.row == null ? "เพิ่มรายการ" : "แก้ไขรายการ",
+          editor: safe_(user.label),
+          code: safe_(item.computerCode || ""),
+          details: JSON.stringify({
+            sheet: s.getName(),
+            row: r,
+            before: old,
+            after: item,
+          }),
         }),
-      ]);
+      );
     } catch (error) {
       warning = "บันทึกข้อมูลแล้ว แต่บันทึกประวัติไม่สำเร็จ กรุณาตรวจ Log";
     }

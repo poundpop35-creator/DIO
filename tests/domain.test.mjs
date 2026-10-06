@@ -129,3 +129,25 @@ test("spreadsheet export and HTML do not execute user text", () => {
     "&lt;img onerror=&quot;x&quot;&gt;",
   );
 });
+test("real sheet snapshot matches the sheet's own summary tab (2569)", async () => {
+  const { makeSnapshotAssets } = await import("../web/snapshot.js");
+  const real = makeSnapshotAssets(),
+    s = summarize(real, 2569);
+  assert.deepEqual(
+    [s.computers, s.pc, s.nb, s.monitors, s.oldComputers, s.oldMonitors],
+    [57, 28, 29, 30, 8, 8],
+  );
+  assert.deepEqual(
+    replacementPlan(real, 2570, 2575, 2569).map((r) => [r.pc, r.nb, r.monitors]),
+    [
+      [1, 0, 1],
+      [6, 6, 6],
+      [6, 14, 1],
+      [1, 0, 4],
+      [1, 0, 0],
+      [7, 7, 10],
+    ],
+  );
+  // Public snapshot must not carry personal names.
+  assert.ok(real.every((a) => !/^(นาย|นาง|น\.ส\.)/.test(a.owner)));
+});

@@ -17,7 +17,7 @@ import {
   escapeHtml,
   csvCell,
 } from "./domain.js";
-import { makeDemoAssets } from "./demo.js";
+import { makeSnapshotAssets, SNAPSHOT_LABEL } from "./snapshot.js";
 const ICONS = {
   monitor:
     '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M12 17v4m-4 0h8"/>',
@@ -29,6 +29,8 @@ const ICONS = {
   calendar:
     '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18m-13 4h2m4 0h2m-8 3h2"/>',
   shield: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM12 8v5m0 3h.01"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
+  alert: '<path d="M12 3 2 20h20zM12 10v4m0 3h.01"/>',
   external: '<path d="M14 3h7v7m0-7L11 13M10 5H4v15h15v-6"/>',
   refresh:
     '<path d="M20 7v5h-5M4 17v-5h5m-5 0a8 8 0 0 1 13-6l3 3M4 15l3 3a8 8 0 0 0 13-6"/>',
@@ -49,18 +51,20 @@ const icon = (name) =>
 const $ = (id) => document.getElementById(id),
   esc = escapeHtml;
 const live = Boolean(window.google?.script?.run);
+const SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/1M8PgWp8kmsmvWRvqywJs3rCGL2rXuRFlAQ8Dw3tywiU/edit#gid=1417596017";
 const state = {
   view: "overview",
-  assets: live ? [] : makeDemoAssets(),
+  assets: live ? [] : makeSnapshotAssets(),
   department: "",
   type: "",
   query: "",
   scope: "computers",
   attention: "",
-  year: live ? currentYear() : 2569,
+  year: currentYear(),
   token: "",
-  user: { role: live ? "viewer" : "admin", department: "*" },
-  sheetUrl: "",
+  user: { role: "viewer", department: "*" },
+  sheetUrl: live ? "" : SHEET_URL,
   loading: false,
 };
 const labels = {
@@ -72,7 +76,10 @@ const labels = {
 };
 const canEdit = () => state.user.role !== "viewer";
 const sourceLabel = () =>
-  live ? "Google Sheet · 2569+จอ" : "ข้อมูลตัวอย่าง · ฐานปี 2569";
+  live ? "Google Sheet · 2569+จอ" : "ชีต 2569+จอ ณ " + SNAPSHOT_LABEL;
+// Public snapshot has no personal names, so show the role/note instead of a filler line.
+const ownerText = (a) =>
+  a.owner || (live ? "ยังไม่ระบุผู้รับผิดชอบ" : a.notes || "");
 function hydrateIcons(root = document) {
   root
     .querySelectorAll("[data-icon]")
@@ -96,17 +103,17 @@ function rpc(method, ...args) {
       [method](...args);
   });
 }
+function toneOf(text) {
+  return text === "ปกติ" || text === "ทดแทนแล้ว"
+    ? "good"
+    : text === "ชำรุด"
+      ? "bad"
+      : /เข้าเกณฑ์|รอ|ตรวจ|ซ่อม|ยังไม่ระบุสภาพ/.test(text)
+        ? "warn"
+        : "";
+}
 function badge(text, tone) {
-  tone =
-    tone ||
-    (text === "ปกติ" || text === "ทดแทนแล้ว"
-      ? "good"
-      : text === "ชำรุด"
-        ? "bad"
-        : /เข้าเกณฑ์|รอ|ตรวจ/.test(text)
-          ? "warn"
-          : "");
-  return `<span class="badge ${tone}">${esc(text)}</span>`;
+  return `<span class="badge ${tone ?? toneOf(text)}"><i class="dot"></i>${esc(text)}</span>`;
 }
 function typeBadge(a, monitor = false) {
   return `<span class="type-badge ${monitor ? "mon" : a.type === "NB" ? "nb" : ""}">${icon(monitor ? "monitor" : a.type === "NB" ? "laptop" : "monitor")}${monitor ? "จอแยก" : esc(a.type)}</span>`;
@@ -165,7 +172,7 @@ function render() {
   $("quality-badge").textContent = summarize(state.assets, state.year).issues;
   $("mode-banner").innerHTML = live
     ? `<span>ข้อมูลจากชีต 2569+จอ · ${esc(state.user.department === "*" ? "ทุกกลุ่ม / ฝ่าย" : state.user.department)}</span><button id="logout">ออกจากระบบ</button>`
-    : '<span>โหมดตัวอย่าง · รายชื่อและรหัสเป็นข้อมูลสมมติ การทดลองแก้ไขไม่กระทบชีตจริง</span><button id="reset-demo">เริ่มใหม่</button>';
+    : `<span><strong>ข้อมูลจริงจากชีต 2569+จอ ณ ${SNAPSHOT_LABEL}</strong> · หน้านี้ดูอย่างเดียว ชื่อผู้รับผิดชอบดูได้ในชีต · แก้ไขข้อมูลที่ Google Sheet</span><button id="open-live-sheet">เปิดชีต</button>`;
   $("page").innerHTML = state.loading
     ? '<div class="loading"><span class="spinner"></span><p>กำลังอ่านทะเบียนครุภัณฑ์…</p></div>'
     : {
@@ -182,10 +189,13 @@ function render() {
       : state.user.role === "viewer"
         ? "ดูข้อมูล"
         : "เจ้าหน้าที่กลุ่ม/ฝ่าย"
-    : "โหมดตัวอย่าง";
+    : "ข้อมูล ณ " + SNAPSHOT_LABEL;
 }
 function stat(label, value, unit, foot, cls, ico) {
-  return `<div class="stat-card ${cls}"><div class="stat-top"><span>${label}</span><span class="stat-icon">${icon(ico)}</span></div><div class="stat-value">${value}<small>${unit}</small></div><div class="stat-foot"><span class="tone-dot"></span>${foot}</div></div>`;
+  return `<div class="stat-card ${cls}"><div class="stat-top"><span>${label}</span><span class="stat-icon">${icon(ico)}</span></div><div class="stat-value">${value}<small>${unit}</small></div><div class="stat-foot">${foot}</div></div>`;
+}
+function alertTile(tone, n, title, sub, attrs, go) {
+  return `<button class="alert-tile ${n ? tone : "ok"}" ${attrs}><span class="alert-num">${n}</span><span><h3>${title}</h3><p>${sub}</p><span class="alert-go">${go}${icon("chevron")}</span></span></button>`;
 }
 function renderOverview() {
   const s = summarize(state.assets, state.year),
@@ -200,41 +210,58 @@ function renderOverview() {
   return (
     pageHead(
       "ภาพรวมครุภัณฑ์",
-      "ติดตามเครื่องที่ใช้งาน และวางแผนทดแทนจากข้อมูลเดียวกัน",
-      `<button class="btn" data-action="export">${icon("download")}ส่งออกข้อมูล</button>${canEdit() ? `<button class="btn primary" data-action="add">${icon("plus")}เพิ่มครุภัณฑ์</button>` : ""}`,
+      "คอมพิวเตอร์และจอของกองแผนงานและวิชาการ · เกณฑ์อายุทดแทน 5 ปี",
+      `<button class="btn" data-action="export">${icon("download")}ส่งออก CSV</button>${canEdit() ? `<button class="btn primary" data-action="add">${icon("plus")}เพิ่มครุภัณฑ์</button>` : ""}`,
     ) +
-    `<div class="stats">${stat("คอมพิวเตอร์ทั้งหมด", s.computers, "เครื่อง", "PC และ NB ในทะเบียน", "featured", "layers")}${stat("คอมพิวเตอร์ PC", s.pc, "เครื่อง", "รวมเครื่องห้องสมุดแล้ว", "", "monitor")}${stat("โน้ตบุ๊ก NB", s.nb, "เครื่อง", "จอแยกนับต่างหาก", "purple", "laptop")}${stat("จอแยกในทะเบียน", s.monitors, "จอ", "นับเฉพาะรหัสจอที่เข้ารูปแบบ", "teal", "monitor")}</div>
- <div class="section-grid"><section class="panel"><div class="panel-head"><div><h2>ครุภัณฑ์ในแต่ละกลุ่ม / ฝ่าย</h2><p class="panel-subtitle">เปรียบเทียบจำนวนคอมพิวเตอร์ PC และ NB</p></div><button class="link-btn" data-action="departments">ดูรายละเอียด</button></div><div class="legend"><span><i class="swatch"></i>PC</span><span><i class="swatch nb"></i>NB</span></div><div class="department-chart">${groups.map((g) => `<div class="dept-bar"><span class="dept-bar-label">${esc(g.name)}</span><div class="bar-track" role="img" aria-label="PC ${g.s.pc}, NB ${g.s.nb}"><span style="width:${(g.s.pc / max) * 100}%">${g.s.pc}</span><span class="nb" style="width:${(g.s.nb / max) * 100}%">${g.s.nb}</span></div><strong>${g.s.computers}</strong></div>`).join("")}</div><div class="chart-foot">จอแยกของโน้ตบุ๊กนับรวมในยอดจอ ไม่รวมจอที่ติดมากับตัวเครื่อง</div></section>
- <section class="panel"><div class="panel-head"><h2>สิ่งที่ต้องติดตาม</h2><span>${icon("clock")}</span></div><div class="action-list"><div class="action-row"><span class="action-symbol">${icon("calendar")}</span><div><h3>คอมเข้าเกณฑ์อายุทดแทน</h3><p>อายุเกิน 5 ปี · ตรวจสภาพก่อนขอซื้อ</p><button class="link-btn" data-attention="old-computers">ดูรายการ</button></div><strong>${s.pendingComputers}</strong></div><div class="action-row"><span class="action-symbol teal">${icon("monitor")}</span><div><h3>จอชำรุดที่ต้องพิจารณา</h3><p>แยกจากจอที่เพียงแค่อายุเกินเกณฑ์</p><button class="link-btn" data-attention="broken-monitors">ดูรายการ</button></div><strong>${s.brokenMonitors}</strong></div><div class="action-row"><span class="action-symbol blue">${icon("shield")}</span><div><h3>รายการที่ข้อมูลยังไม่ครบ</h3><p>รหัสจอ ปีซื้อ หรือข้อมูลที่ควรยืนยัน</p><button class="link-btn" data-action="quality">ตรวจข้อมูล</button></div><strong>${s.issues}</strong></div></div><div class="policy-note"><strong>จอเกิน 5 ปี ${s.oldMonitors} จอ</strong> เข้าเกณฑ์อายุพิจารณาทดแทน แต่หากยังใช้งานได้ ไม่จำเป็นต้องซื้อใหม่</div></section></div>
- <section class="panel recent-panel"><div class="panel-head"><div><h2>รายการที่เข้าเกณฑ์อายุคอมพิวเตอร์</h2><p class="panel-subtitle">พิจารณาสภาพและความจำเป็นเป็นรายเครื่อง</p></div><button class="link-btn" data-attention="old-computers">ดูทั้งหมด</button></div>${assetTable(state.assets.filter((a) => computerStatus(a, state.year) === "เข้าเกณฑ์อายุ").slice(0, 4), false)}</section>`
+    `<div class="stats">${stat("คอมพิวเตอร์ทั้งหมด", s.computers, "เครื่อง", "PC + NB ในทะเบียน", "featured", "layers")}${stat("PC ตั้งโต๊ะ", s.pc, "เครื่อง", "รวม PC ห้องสมุดแล้ว", "pc", "monitor")}${stat("โน้ตบุ๊ก NB", s.nb, "เครื่อง", "จอแยกนับต่างหาก", "nb", "laptop")}${stat("จอแยก", s.monitors, "จอ", "นับเฉพาะรหัส 7440-006-…", "mon", "monitor")}</div>
+<h2 class="section-title">${icon("alert")}สิ่งที่ต้องดำเนินการ</h2>
+<div class="alert-grid">${alertTile("warn", s.pendingComputers, "คอมอายุเกิน 5 ปี", "เข้าเกณฑ์พิจารณาทดแทน · ตรวจสภาพก่อนขอซื้อ", 'data-attention="old-computers"', "ดูรายการ")}${alertTile("bad", s.brokenMonitors, "จอชำรุด", "จอที่เจ้าหน้าที่ระบุว่าชำรุด และยังไม่บันทึกผล", 'data-attention="broken-monitors"', "ดูรายการ")}${alertTile("info", s.issues, "ข้อมูลยังไม่ครบ", "รหัสจอ ปีซื้อ หรือข้อมูลที่ควรยืนยัน", 'data-action="quality"', "ไปตรวจข้อมูล")}</div>
+<div class="policy-note"><strong>จออายุเกิน 5 ปี ${s.oldMonitors} จอ</strong> — เข้าเกณฑ์อายุ แต่ถ้ายังใช้งานได้ <strong>ไม่จำเป็นต้องซื้อใหม่</strong></div>
+<h2 class="section-title">${icon("building")}จำนวนเครื่องแต่ละกลุ่ม / ฝ่าย</h2>
+<section class="panel"><div class="legend"><span><i class="swatch"></i>PC</span><span><i class="swatch nb"></i>NB</span><span><i class="swatch mon"></i>จอแยก (ตัวเลขใต้ยอดรวม)</span></div><div class="department-chart">${groups.map((g) => `<div class="dept-bar"><span class="dept-bar-label">${esc(g.name)}</span><div class="bar-track" role="img" aria-label="PC ${g.s.pc}, NB ${g.s.nb}"><span style="width:${(g.s.pc / max) * 100}%">${g.s.pc}</span><span class="nb" style="width:${(g.s.nb / max) * 100}%">${g.s.nb}</span></div><div class="dept-total"><strong>${g.s.computers}</strong><small>จอ ${g.s.monitors}</small></div></div>`).join("")}</div><div class="chart-foot"><button class="link-btn" data-action="departments">ดูรายละเอียดแต่ละฝ่าย${icon("chevron")}</button></div></section>
+<section class="panel recent-panel"><div class="panel-head"><div><h2>คอมที่อายุเกิน 5 ปี</h2><p class="panel-subtitle">พิจารณาสภาพและความจำเป็นเป็นรายเครื่อง</p></div><button class="link-btn" data-attention="old-computers">ดูทั้งหมด${icon("chevron")}</button></div>${assetTable(state.assets.filter((a) => computerStatus(a, state.year) === "เข้าเกณฑ์อายุ").slice(0, 5), false)}</section>`
   );
+}
+function rowTone(a, mon) {
+  return toneOf(mon ? monitorStatus(a) : computerStatus(a, state.year));
+}
+function openButton(a) {
+  return `<button class="btn compact" data-edit="${a.row}" aria-label="เปิดรายการ ${esc(a.computerCode)}">${icon(canEdit() ? "edit" : "arrow")}${canEdit() ? "ดู / แก้ไข" : "ดูรายละเอียด"}</button>`;
 }
 function assetTable(rows, mon = false) {
   if (!rows.length)
-    return '<div class="empty"><h3>ไม่มีรายการในเงื่อนไขนี้</h3><p>ลองเปลี่ยนตัวกรอง หรือค้นหาด้วยชื่อผู้รับผิดชอบ</p></div>';
-  return `<div class="table-wrap"><table><thead><tr><th>ครุภัณฑ์ / ผู้รับผิดชอบ</th><th>กลุ่ม / ฝ่าย</th><th>ปีซื้อ / อายุ</th><th>${mon ? "สถานะการใช้งาน" : "สถานะคอม"}</th><th>${mon ? "เกณฑ์อายุ" : "จอแยก"}</th><th></th></tr></thead><tbody>${rows.map((a) => `<tr><td>${typeBadge(a, mon)} <span class="asset-name">${esc(mon ? a.monitorCode || "ยังไม่ระบุรหัสจอ" : a.computerCode || "ยังไม่ระบุรหัส")}</span><small>${esc(a.owner || "ยังไม่ระบุผู้รับผิดชอบ")}</small></td><td>${esc(a.department)}</td><td>${esc((mon ? a.monitorYear : a.computerYear) || "—")}<small>${ageText(mon ? a.monitorYear : a.computerYear)}</small></td><td>${badge(mon ? monitorStatus(a) : computerStatus(a, state.year))}</td><td>${mon ? (age(a.monitorYear, state.year) === null ? badge("ตรวจปีซื้อ", "warn") : age(a.monitorYear, state.year) > 5 ? badge("พิจารณาทดแทนได้", "warn") : badge("ไม่เกิน 5 ปี", "good")) : validMonitor(a) ? badge("มีจอแยก", "info") : a.monitorCode ? badge("ตรวจรหัสจอ", "warn") : '<span class="badge">ยังไม่ระบุ</span>'}</td><td><button class="icon-btn" data-edit="${a.row}" aria-label="ดูรายละเอียด ${esc(a.computerCode)}">${icon("edit")}</button></td></tr>`).join("")}</tbody></table></div>`;
+    return '<div class="empty"><h3>ไม่มีรายการในเงื่อนไขนี้</h3><p>ลองเปลี่ยนตัวกรอง หรือค้นหาด้วยเลขครุภัณฑ์</p></div>';
+  return `<div class="table-wrap"><table class="cards-on-mobile"><thead><tr><th>${mon ? "จอแยก" : "คอมพิวเตอร์"}</th><th>กลุ่ม / ฝ่าย</th><th>ปีซื้อ / อายุ</th><th>${mon ? "สภาพจอ" : "สถานะคอม"}</th><th>${mon ? "เกณฑ์อายุ" : "จอแยก"}</th><th></th></tr></thead><tbody>${rows
+    .map((a) => {
+      const year = mon ? a.monitorYear : a.computerYear,
+        monAge = age(a.monitorYear, state.year);
+      return `<tr class="tone-${rowTone(a, mon) || "none"}"><td><div class="asset-cell">${typeBadge(a, mon)}<div><span class="asset-name">${esc(mon ? a.monitorCode || "ยังไม่มีรหัสจอ" : a.computerCode || "ยังไม่ระบุรหัส")}</span><small>${esc(mon ? "ใช้กับ " + (a.computerCode || a.type) : ownerText(a))}</small></div></div></td><td data-label="กลุ่ม / ฝ่าย">${esc(a.department)}</td><td data-label="ปีซื้อ / อายุ" class="tnum">${esc(year || "—")} <small>${ageText(year)}</small></td><td data-label="${mon ? "สภาพจอ" : "สถานะคอม"}">${badge(mon ? monitorStatus(a) : computerStatus(a, state.year))}</td><td data-label="${mon ? "เกณฑ์อายุ" : "จอแยก"}">${mon ? (monAge === null ? badge("ตรวจปีซื้อ", "warn") : monAge > 5 ? badge("เกิน 5 ปี · พิจารณาได้", "warn") : badge("ไม่เกิน 5 ปี", "good")) : validMonitor(a) ? badge("มีจอแยก", "info") : a.monitorCode ? badge("ตรวจรหัสจอ", "warn") : badge("ไม่มีรหัสจอ", "")}</td><td class="row-action">${openButton(a)}</td></tr>`;
+    })
+    .join("")}</tbody></table></div>`;
 }
 function filters() {
-  return `<div class="filter-bar"><div class="search">${icon("search")}<input id="search" type="search" placeholder="ค้นหารหัสครุภัณฑ์ หรือผู้รับผิดชอบ…" aria-label="ค้นหาครุภัณฑ์" value="${esc(state.query)}"></div><select id="department-filter" aria-label="กลุ่มฝ่าย">${options(DEPARTMENTS, state.department, "ทุกกลุ่ม / ฝ่าย")}</select><select id="type-filter" aria-label="ประเภทคอม">${options(["PC", "NB"], state.type, "ทุกประเภท")}</select></div>`;
+  return `<div class="filter-bar"><div class="search">${icon("search")}<input id="search" type="search" placeholder="ค้นหาเลขครุภัณฑ์ เช่น 0106 หรือ 7440-006…" aria-label="ค้นหาครุภัณฑ์" value="${esc(state.query)}"></div><select id="department-filter" aria-label="กลุ่มฝ่าย">${options(DEPARTMENTS, state.department, "ทุกกลุ่ม / ฝ่าย")}</select><select id="type-filter" aria-label="ประเภทคอม">${options(["PC", "NB"], state.type, "ทุกประเภท")}</select></div>`;
 }
+const colorLegend =
+  '<div class="legend"><span><i class="swatch good"></i>ปกติ</span><span><i class="swatch warn"></i>ต้องพิจารณา / ตรวจข้อมูล</span><span><i class="swatch bad"></i>ชำรุด</span></div>';
 function renderInventory() {
   let rows = filtered();
   if (state.scope === "monitors") rows = rows.filter(hasMonitorInfo);
   return (
     pageHead(
       "ทะเบียนครุภัณฑ์",
-      "ข้อมูลคอมพิวเตอร์และจออยู่ในรายการเดียวกัน แต่บันทึกผลทดแทนแยกกัน",
-      `<button class="btn" data-action="export">${icon("download")}ส่งออก</button>${canEdit() ? `<button class="btn primary" data-action="add">${icon("plus")}เพิ่มรายการ</button>` : ""}`,
+      "คอมและจออยู่ในรายการเดียวกัน แต่บันทึกผลทดแทนแยกกัน",
+      `<button class="btn" data-action="export">${icon("download")}ส่งออก CSV</button>${canEdit() ? `<button class="btn primary" data-action="add">${icon("plus")}เพิ่มรายการ</button>` : ""}`,
     ) +
     filters() +
-    `<section class="panel"><div class="panel-head"><div class="segmented"><button data-scope="computers" class="${state.scope === "computers" ? "active" : ""}">คอมพิวเตอร์</button><button data-scope="monitors" class="${state.scope === "monitors" ? "active" : ""}">จอแยก</button></div><span class="panel-subtitle">${rows.length} รายการ</span></div>${state.attention ? `<div class="filter-note"><span>กรอง: ${state.attention === "old-computers" ? "คอมเข้าเกณฑ์อายุ" : state.attention === "broken-monitors" ? "จอชำรุด" : "ข้อมูลต้องตรวจสอบ"}</span><button class="link-btn" data-action="clear-attention">ล้างเงื่อนไข</button></div>` : ""}${assetTable(rows, state.scope === "monitors")}</section>`
+    `<section class="panel"><div class="panel-head"><div class="segmented" role="tablist"><button data-scope="computers" class="${state.scope === "computers" ? "active" : ""}">${icon("laptop")}คอมพิวเตอร์</button><button data-scope="monitors" class="mon ${state.scope === "monitors" ? "active" : ""}">${icon("monitor")}จอแยก</button></div><span class="count-pill">${rows.length} รายการ</span></div>${state.attention ? `<div class="filter-note"><span>กำลังกรอง: ${state.attention === "old-computers" ? "คอมอายุเกิน 5 ปี" : state.attention === "broken-monitors" ? "จอชำรุด" : "ข้อมูลต้องตรวจสอบ"}</span><button class="link-btn" data-action="clear-attention">ล้างตัวกรอง ✕</button></div>` : ""}${colorLegend}${assetTable(rows, state.scope === "monitors")}</section>`
   );
 }
 function renderDepartments() {
   return (
     pageHead(
       "ครุภัณฑ์รายกลุ่ม / ฝ่าย",
-      "ดูจำนวนเครื่อง ผู้รับผิดชอบ และรายการที่ควรติดตามของแต่ละฝ่าย",
+      "จำนวนเครื่องและรายการที่ควรติดตามของแต่ละฝ่าย",
     ) +
     `<div class="department-cards">${DEPARTMENTS.filter(
       (name) =>
@@ -247,10 +274,13 @@ function renderDepartments() {
           state.assets.filter((a) => a.department === name),
           state.year,
         );
-        return `<section class="panel department-card"><div class="card-title"><span class="stat-icon">${icon("building")}</span><h2>${esc(name)}</h2></div><div class="numbers"><div><strong>${s.pc}</strong><span>PC · เครื่อง</span></div><div><strong>${s.nb}</strong><span>NB · เครื่อง</span></div><div><strong>${s.monitors}</strong><span>จอแยก · จอ</span></div></div><div class="card-bottom"><span>คอมเข้าเกณฑ์ ${s.oldComputers} เครื่อง · จอชำรุด ${s.brokenMonitors} จอ</span><button class="link-btn" data-department="${esc(name)}">เปิดทะเบียน</button></div></section>`;
+        return `<section class="panel department-card"><div class="card-title"><span class="stat-icon">${icon("building")}</span><h2>${esc(name)}</h2></div><div class="numbers"><div><strong>${s.pc}</strong><span>PC</span></div><div><strong>${s.nb}</strong><span>NB</span></div><div><strong>${s.monitors}</strong><span>จอแยก</span></div></div><div class="card-flags">${badge(`คอมเกิน 5 ปี ${s.oldComputers} เครื่อง`, s.oldComputers ? "warn" : "good")}${badge(`จอเกิน 5 ปี ${s.oldMonitors} จอ`, s.oldMonitors ? "warn" : "good")}${badge(`จอชำรุด ${s.brokenMonitors}`, s.brokenMonitors ? "bad" : "good")}</div><div class="card-bottom"><button class="btn" data-department="${esc(name)}">เปิดทะเบียนฝ่ายนี้${icon("chevron")}</button></div></section>`;
       })
       .join("")}</div>`
   );
+}
+function num(n, cls) {
+  return `<span class="${n ? cls : "zero"}">${n}</span>`;
 }
 function renderPlan() {
   const assets = state.department
@@ -267,14 +297,15 @@ function renderPlan() {
       }),
       { pc: 0, nb: 0, total: 0, monitors: 0 },
     ),
-    peak = Math.max(...rows.map((r) => r.total));
+    peak = Math.max(...rows.map((r) => r.total)),
+    scale = Math.max(peak, 1);
   return (
     pageHead(
       "แผนตามอายุ 2570–2575",
-      "ครบ 6 ปี · แต่ละรายการนับครั้งเดียวในปีที่เริ่มเกิน 5 ปี",
+      "แต่ละเครื่องนับครั้งเดียว ในปีที่อายุเริ่มเกิน 5 ปี",
       `<button class="btn" data-action="print">${icon("download")}พิมพ์ / PDF</button>`,
     ) +
-    `<div class="callout">${icon("shield")}<div><strong>เข้าเกณฑ์อายุ ≠ ต้องซื้อใหม่</strong>จอยังใช้งานได้ให้คงสถานะปกติ พิจารณาทดแทนเมื่อชำรุดและมีความจำเป็น ตัวเลขนี้ยังไม่หักผลทดแทนที่เจ้าหน้าที่บันทึก</div></div><div class="filter-bar"><select id="department-filter" aria-label="เลือกกลุ่มฝ่ายของแผน">${options(DEPARTMENTS, state.department, "ทุกกลุ่ม / ฝ่าย")}</select><span class="panel-subtitle">ก่อนปี 2570: คอม ${s.oldComputers} เครื่อง / จอ ${s.oldMonitors} จอ เข้าเกณฑ์อายุแล้ว</span></div><section class="panel"><div class="table-wrap"><table class="plan-table"><thead><tr><th>ปีเริ่มเกิน 5 ปี</th><th>ปีครบ 5 ปี</th><th>PC</th><th>NB</th><th>รวมคอม</th><th>จอเข้าเกณฑ์อายุ</th></tr></thead><tbody>${rows.map((r) => `<tr class="${r.total === peak && peak ? "peak" : ""}"><td>${r.year}</td><td>${r.completeYear}</td><td>${r.pc}</td><td>${r.nb}</td><td><strong>${r.total}</strong></td><td>${r.monitors}</td></tr>`).join("")}<tr class="plan-totals"><td>รวม 6 ปี</td><td>—</td><td>${sum.pc}</td><td>${sum.nb}</td><td>${sum.total}</td><td>${sum.monitors}</td></tr></tbody></table></div><div class="chart-foot">ปีเริ่มเกิน 5 ปี = ปีซื้อ + 6 · ไม่รวมยอดเข้าเกณฑ์แล้วก่อนปี 2570 · จอนับเฉพาะรหัสที่เข้ารูปแบบ</div></section>`
+    `<div class="callout">${icon("shield")}<div><strong>เข้าเกณฑ์อายุ ≠ ต้องซื้อใหม่</strong>จอที่ยังใช้งานได้ให้คงสถานะปกติ พิจารณาทดแทนเมื่อชำรุดและจำเป็น · ตัวเลขยังไม่หักผลทดแทนที่บันทึกแล้ว</div></div><div class="filter-bar"><select id="department-filter" aria-label="เลือกกลุ่มฝ่ายของแผน">${options(DEPARTMENTS, state.department, "ทุกกลุ่ม / ฝ่าย")}</select>${badge(`เกินเกณฑ์แล้ว ณ 2569: คอม ${s.oldComputers} · จอ ${s.oldMonitors}`, "warn")}</div><section class="panel"><div class="legend"><span><i class="swatch"></i>PC</span><span><i class="swatch nb"></i>NB</span><span><i class="swatch mon"></i>จอ</span></div><div class="table-wrap"><table class="plan-table"><thead><tr><th>ปีที่เริ่มเกิน 5 ปี</th><th>PC</th><th>NB</th><th>รวมคอม</th><th>จอ</th></tr></thead><tbody>${rows.map((r) => `<tr class="${r.total === peak && peak ? "peak" : ""}"><td>${r.year}${r.total === peak && peak ? '<span class="peak-tag">สูงสุด</span>' : ""}<small>ซื้อปี ${r.year - 6}</small></td><td>${num(r.pc, "n-pc")}</td><td>${num(r.nb, "n-nb")}</td><td><div class="plan-bar"><strong>${r.total}</strong><span class="track"><i style="width:${(r.pc / scale) * 100}%"></i><i class="nb" style="width:${(r.nb / scale) * 100}%"></i></span></div></td><td>${num(r.monitors, "n-mon")}</td></tr>`).join("")}<tr class="plan-totals"><td>รวม 6 ปี</td><td>${sum.pc}</td><td>${sum.nb}</td><td>${sum.total}</td><td>${sum.monitors}</td></tr></tbody></table></div><div class="chart-foot">ปีที่เริ่มเกิน 5 ปี = ปีซื้อ + 6 · ไม่รวมรายการที่เกินเกณฑ์แล้วก่อนปี 2570 · จอนับเฉพาะรหัสที่ถูกรูปแบบ</div></section>`
   );
 }
 function renderQuality() {
@@ -282,25 +313,23 @@ function renderQuality() {
   return (
     pageHead(
       "ตรวจสอบข้อมูล",
-      "ตรวจข้อมูลที่ยังไม่ครบก่อนนำไปจัดทำคำขอซื้อ ตัวเลขที่ไม่ทราบจะไม่ถูกเดาแทน",
+      "รายการที่ข้อมูลยังไม่ครบ ควรแก้ในชีตก่อนนำไปจัดทำคำขอซื้อ",
     ) +
     filters() +
-    `<section class="panel"><div class="panel-head"><h2>รายการที่ควรตรวจ ${rows.length} รายการ</h2></div>${
+    `<section class="panel"><div class="panel-head"><h2>รายการที่ควรตรวจ</h2><span class="count-pill">${rows.length} รายการ</span></div>${
       rows.length
-        ? `<div class="table-wrap"><table><thead><tr><th>รายการ / ผู้รับผิดชอบ</th><th>กลุ่ม / ฝ่าย</th><th>จุดที่ควรตรวจ</th><th></th></tr></thead><tbody>${rows
+        ? `<div class="table-wrap"><table class="cards-on-mobile"><thead><tr><th>คอมพิวเตอร์</th><th>กลุ่ม / ฝ่าย</th><th>จุดที่ควรตรวจ</th><th></th></tr></thead><tbody>${rows
             .map(
               (a) =>
-                `<tr><td>${typeBadge(a)} ${esc(a.computerCode)}<small>${esc(a.owner)}</small></td><td>${esc(a.department)}</td><td><div class="issue-list">${issues(
+                `<tr class="tone-warn"><td><div class="asset-cell">${typeBadge(a)}<div><span class="asset-name">${esc(a.computerCode)}</span><small>${esc(ownerText(a))}</small></div></div></td><td data-label="กลุ่ม / ฝ่าย">${esc(a.department)}</td><td data-label="ควรตรวจ"><div class="issue-list">${issues(
                   a,
                   state.year,
                 )
                   .map((t) => badge(t, "warn"))
-                  .join(
-                    "",
-                  )}</div></td><td><button class="btn compact" data-edit="${a.row}">ตรวจรายการ</button></td></tr>`,
+                  .join("")}</div></td><td class="row-action">${openButton(a)}</td></tr>`,
             )
             .join("")}</tbody></table></div>`
-        : '<div class="empty"><h3>ข้อมูลครบตามเงื่อนไขที่ตรวจ</h3></div>'
+        : '<div class="empty"><h3>✓ ข้อมูลครบตามเงื่อนไขที่ตรวจ</h3></div>'
     }</section>`
   );
 }
@@ -339,7 +368,7 @@ function openAsset(row) {
       reason: "",
     };
   $("asset-title").textContent = existing
-    ? `${a.type} · ${a.owner}`
+    ? `${a.type} · ${a.computerCode || ownerText(a)}`
     : "เพิ่มครุภัณฑ์";
   $("asset-kicker").textContent = existing
     ? `ลำดับ ${a.id} / ${sourceLabel()}`
@@ -349,7 +378,7 @@ function openAsset(row) {
       ? DEPARTMENTS
       : [state.user.department];
   $("asset-content").innerHTML =
-    `<form id="asset-form"><fieldset ${!canEdit() ? "disabled" : ""} style="border:0;margin:0;padding:0"><div class="form-body"><div class="form-grid" style="margin-bottom:20px">${field("ผู้รับผิดชอบ", "owner", a.owner)}${selectField("กลุ่ม / ฝ่าย", "department", departments, a.department, "เลือกกลุ่ม / ฝ่าย")}</div><div class="form-section"><h3>${icon("laptop")}คอมพิวเตอร์ PC / NB</h3><div class="form-grid">${selectField("ประเภท", "type", ["PC", "NB", "PC (ห้องสมุด)"], a.type, "เลือกประเภท")}${field("เลขครุภัณฑ์คอมพิวเตอร์", "computerCode", a.computerCode)}${field("ปีซื้อคอม (พ.ศ.)", "computerYear", a.computerYear, "number")}${selectField("ผลทดแทนเฉพาะคอม", "computerOutcome", OUTCOMES, a.computerOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุคอม ${age(a.computerYear, state.year) ?? "—"} ปี · ไม่เกิน 5 ปี = ปกติ / เกิน 5 ปี = เข้าเกณฑ์อายุพิจารณาทดแทน</p></div><div class="form-section mon"><h3>${icon("monitor")}จอแยก</h3><div class="form-grid">${field("เลขครุภัณฑ์จอ", "monitorCode", a.monitorCode)}${field("ปีซื้อจอ (พ.ศ.)", "monitorYear", a.monitorYear, "number")}${selectField("สถานะการใช้งานจอ", "monitorCondition", CONDITIONS, a.monitorCondition)}${selectField("ผลทดแทนเฉพาะจอ", "monitorOutcome", OUTCOMES, a.monitorOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุจอ ${age(a.monitorYear, state.year) ?? "—"} ปี · คำนวณจากปีซื้อจอ แม้ยังไม่มีรหัส · จอที่ยังใช้งานได้ไม่จำเป็นต้องซื้อใหม่เพียงเพราะอายุเกิน 5 ปี</p></div><div class="form-grid"><label class="wide">หมายเหตุ<textarea name="notes" maxlength="3000" placeholder="บันทึกเพิ่มเติมได้ตามต้องการ">${esc(a.notes)}</textarea></label><label class="wide">เหตุผลความจำเป็นในการขอซื้อ<textarea name="reason" maxlength="3000" placeholder="ระบุอุปกรณ์ที่ขอทดแทน สภาพปัญหา และผลต่อการปฏิบัติงาน">${esc(a.reason)}</textarea></label></div><p class="form-error" id="save-error" role="alert"></p></div><div class="form-actions"><small>${live ? "บันทึกลงชีตหลักและอัปเดตชีตแยกฝ่าย" : "ทดลองแก้ไขเฉพาะหน้านี้ · ไม่บันทึกลงชีตจริง"}</small><div class="right"><button type="button" class="btn" data-close="asset-dialog">ปิด</button>${canEdit() ? '<button type="submit" class="btn primary">บันทึกข้อมูล</button>' : ""}</div></div></fieldset></form>`;
+    `<form id="asset-form"><fieldset ${!canEdit() ? "disabled" : ""} style="border:0;margin:0;padding:0"><div class="form-body"><div class="form-grid" style="margin-bottom:20px">${field("ผู้รับผิดชอบ", "owner", existing ? a.owner || (live ? "" : "(ดูชื่อในชีต)") : "")}${selectField("กลุ่ม / ฝ่าย", "department", departments, a.department, "เลือกกลุ่ม / ฝ่าย")}</div><div class="form-section"><h3>${icon("laptop")}คอมพิวเตอร์ PC / NB</h3><div class="form-grid">${selectField("ประเภท", "type", ["PC", "NB", "PC (ห้องสมุด)"], a.type, "เลือกประเภท")}${field("เลขครุภัณฑ์คอมพิวเตอร์", "computerCode", a.computerCode)}${field("ปีซื้อคอม (พ.ศ.)", "computerYear", a.computerYear, "number")}${selectField("ผลทดแทนเฉพาะคอม", "computerOutcome", OUTCOMES, a.computerOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุคอม ${age(a.computerYear, state.year) ?? "—"} ปี · ไม่เกิน 5 ปี = ปกติ / เกิน 5 ปี = เข้าเกณฑ์อายุพิจารณาทดแทน</p></div><div class="form-section mon"><h3>${icon("monitor")}จอแยก</h3><div class="form-grid">${field("เลขครุภัณฑ์จอ", "monitorCode", a.monitorCode)}${field("ปีซื้อจอ (พ.ศ.)", "monitorYear", a.monitorYear, "number")}${selectField("สถานะการใช้งานจอ", "monitorCondition", CONDITIONS, a.monitorCondition)}${selectField("ผลทดแทนเฉพาะจอ", "monitorOutcome", OUTCOMES, a.monitorOutcome, "ยังไม่บันทึกผล")}</div><p class="form-hint">อายุจอ ${age(a.monitorYear, state.year) ?? "—"} ปี · คำนวณจากปีซื้อจอ แม้ยังไม่มีรหัส · จอที่ยังใช้งานได้ไม่จำเป็นต้องซื้อใหม่เพียงเพราะอายุเกิน 5 ปี</p></div><div class="form-grid"><label class="wide">หมายเหตุ<textarea name="notes" maxlength="3000" placeholder="บันทึกเพิ่มเติมได้ตามต้องการ">${esc(a.notes)}</textarea></label><label class="wide">เหตุผลความจำเป็นในการขอซื้อ<textarea name="reason" maxlength="3000" placeholder="ระบุอุปกรณ์ที่ขอทดแทน สภาพปัญหา และผลต่อการปฏิบัติงาน">${esc(a.reason)}</textarea></label></div><p class="form-error" id="save-error" role="alert"></p></div></fieldset><div class="form-actions"><small>${canEdit() ? "บันทึกลงชีตหลักและอัปเดตชีตแยกฝ่าย" : live ? "สิทธิ์นี้ดูข้อมูลได้อย่างเดียว" : "ดูอย่างเดียว · แก้ไขข้อมูลที่ Google Sheet"}</small><div class="right"><button type="button" class="btn" data-close="asset-dialog">ปิด</button>${canEdit() ? '<button type="submit" class="btn primary">บันทึกข้อมูล</button>' : ""}</div></div></form>`;
   $("asset-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget,
@@ -454,20 +483,20 @@ function exportData() {
   const url = URL.createObjectURL(blob),
     link = document.createElement("a");
   link.href = url;
-  link.download = `DPTC-${live ? "inventory" : "demo"}-${state.year}.csv`;
+  link.download = `DPTC-inventory-${state.year}.csv`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 function showSource() {
   $("source-content").innerHTML = live
     ? `<p><strong>แหล่งข้อมูล:</strong> ชีต 2569+จอ</p><p>ข้อมูลรายการมาจากชีตหลัก การแก้ไขบันทึกกลับเฉพาะช่องที่กรอก และแยกผลทดแทนคอมกับจอ</p><p>สถานะจอเป็นสภาพจริง อายุเกิน 5 ปีแสดงเป็นคำเตือนเท่านั้น</p><button class="btn primary" id="open-live-sheet">เปิด Google Sheet</button>`
-    : `<p><strong>หน้านี้เป็นเวอร์ชันทดลอง</strong> ใช้ข้อมูลสมมติที่จัดสัดส่วนเหมือนทะเบียน เพื่อทดลองหน้าจอและการคำนวณ</p><p>เมื่อเปิดผ่าน Google Apps Script ที่ติดตั้งแล้ว แอปจะให้เข้าใช้งานและอ่านข้อมูลจากชีตจริงโดยอัตโนมัติ</p><p>ผู้ดูแลติดตั้งไฟล์ในโฟลเดอร์ <code>apps-script</code> ตามคู่มือในโปรเจกต์ DIO</p><a class="btn primary" href="https://github.com/poundpop35-creator/DIO" target="_blank" rel="noopener">เปิดโปรเจกต์ DIO</a>`;
+    : `<p><strong>แหล่งข้อมูล:</strong> ชีต 2569+จอ ในไฟล์ “ครุภัณฑ์กองแผน” ณ ${SNAPSHOT_LABEL}</p><p>เลขครุภัณฑ์ ปีซื้อ ฝ่าย และสถานะเป็นค่าจริง ชื่อบุคคลไม่แสดงบนเว็บสาธารณะ ดูได้ในชีต</p><p>ต้องการแก้ไขข้อมูลหรือดูแบบสด ใช้แอปผ่าน Google Apps Script ที่ต้องใส่รหัสเข้าใช้งาน</p><button class="btn primary" id="open-live-sheet">เปิด Google Sheet</button>`;
   $("source-dialog").showModal();
 }
 async function refreshData() {
   if (!live) {
     render();
-    toast("รีเฟรชหน้าทดลองแล้ว");
+    toast("ข้อมูลชุดนี้เป็นของวันที่ " + SNAPSHOT_LABEL);
     return;
   }
   state.loading = true;
@@ -566,11 +595,9 @@ document.addEventListener("click", (event) => {
     state.attention = "";
     render();
   }
-  if (b.id === "source-button" || (b.id === "sheet-link" && !live))
-    showSource();
+  if (b.id === "source-button") showSource();
   if (
     (b.id === "sheet-link" || b.id === "open-live-sheet") &&
-    live &&
     state.sheetUrl
   )
     window.open(state.sheetUrl, "_blank", "noopener");
@@ -578,11 +605,6 @@ document.addEventListener("click", (event) => {
   if (b.id === "menu-toggle") {
     const open = $("sidebar").classList.toggle("open");
     b.setAttribute("aria-expanded", String(open));
-  }
-  if (b.id === "reset-demo") {
-    state.assets = makeDemoAssets();
-    render();
-    toast("เริ่มข้อมูลตัวอย่างใหม่แล้ว");
   }
   if (b.id === "logout") {
     const token = state.token;

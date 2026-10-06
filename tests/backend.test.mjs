@@ -19,7 +19,7 @@ function setup() {
     "สถานะ pc/nb",
     "ผลดำเนินการทดแทน",
     "จอ",
-    "ปีที่จัดซื้อจอ",
+    "ปีที่จัดซื้อจอ (ถ้ามี)",
     "อายุจอ",
     "สถานะจอ",
     "ผลดำเนินการทดแทนจอ",
@@ -64,10 +64,17 @@ function setup() {
   ];
   const formulas = new Map([["2,16", "=ARRAYFORMULA(...)"]]);
   const log = [];
+  const logHeaders = ["วันที่/เวลา", "การกระทำ", "ผู้แก้ไข", "AMS", "รายละเอียด"];
   const book = {
     getUrl: () => "https://docs.google.com/spreadsheets/d/test",
     getSheetByName: (n) =>
-      n === "Log" ? { appendRow: (v) => log.push(v) } : sheet,
+      n === "Log"
+        ? {
+            appendRow: (v) => log.push(v),
+            getLastColumn: () => logHeaders.length,
+            getRange: () => ({ getDisplayValues: () => [logHeaders] }),
+          }
+        : sheet,
   };
   const sheet = {
     getName: () => "2569+จอ",
@@ -194,6 +201,10 @@ test("saving monitor condition keeps computer outcome, notes, audit, and checkbo
   assert.equal(rows[1][17], "ส่งแล้ว");
   assert.equal(formulas.get("2,16"), "=ARRAYFORMULA(...)");
   assert.equal(log.length, 1);
+  assert.equal(log[0].length, 5);
+  assert.equal(log[0][1], "แก้ไขรายการ");
+  assert.equal(log[0][3], "TEST-1");
+  assert.match(log[0][4], /"sheet":"2569\+จอ"/);
   assert.ok(formulas.get("2,12").includes("VALUE(K2)"));
   assert.ok(formulas.get("2,7").includes("VALUE(F2)"));
   assert.ok(formulas.get("2,8").includes('I2="ทดแทนแล้ว"'));
